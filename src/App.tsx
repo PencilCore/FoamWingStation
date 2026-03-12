@@ -12,10 +12,20 @@ import LicenseModal from './components/LicenseModal';
 
 export default function App() {
   const [topTab, setTopTab] = useState(0); // 0 设计  1 切割
-  const [leftWidth, setLeftWidth] = useState(70); // 左侧宽度改为 70%
+  const [leftWidth, setLeftWidth] = useState(37); // 设计界面建议比例
   const [licenseOpen, setLicenseOpen] = useState(false);
   const [logoClicked, setLogoClicked] = useState(false);
   const dragging = useRef(false);
+
+  // 当切换标签页时，自动调整比例
+  const handleTabChange = (_: React.SyntheticEvent, newValue: number) => {
+    setTopTab(newValue);
+    if (newValue === 0) {
+      setLeftWidth(37); // 设计界面 37分
+    } else {
+      setLeftWidth(73); // 控制界面 73分
+    }
+  };
 
   const handleLogoClick = () => {
     if (licenseOpen) {
@@ -84,7 +94,7 @@ export default function App() {
             </Box>
 
             <Box sx={{ flex: 1, display: 'flex', justifyContent: 'center' }}>
-              <Tabs value={topTab} onChange={(_, v) => setTopTab(v)} textColor="inherit" sx={{ minWidth: 200 }}>
+              <Tabs value={topTab} onChange={handleTabChange} textColor="inherit" sx={{ minWidth: 200 }}>
                 <Tab label="设计" />
                 <Tab label="切割" />
               </Tabs>
