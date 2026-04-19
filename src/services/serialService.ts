@@ -15,7 +15,8 @@ const LAST_PORT_KEY = 'foam_wing_last_port_label'
 if (typeof window !== 'undefined') {
   setTimeout(() => {
     if (localStorage.getItem(LAST_PORT_KEY)) {
-      console.log('检测到历史设备，开始 1s 轮询尝试重连...');
+      console.log('检测到历史设备，开始尝试自动重连...');
+      reconnectAttempts = 0; // 重置计数器
       attemptAutoReconnect();
     }
   }, 1000);
@@ -48,6 +49,7 @@ function handleUnexpectedDisconnect() {
   window.dispatchEvent(new CustomEvent('serial-connected', { detail: { connected: false, label: null, unexpected: true } }));
   
   if (autoReconnectEnabled) {
+    reconnectAttempts = 0; // 重置重连计数，新一轮尝试
     console.log('检测到意外断开，开启自动重连...');
     attemptAutoReconnect();
   }
@@ -55,9 +57,13 @@ function handleUnexpectedDisconnect() {
 
 // 自动重连定时器句柄
 let reconnectTimer: any = null;
+let reconnectAttempts = 0;
+const MAX_RECONNECT_ATTEMPTS = 5; // 最多尝试 5 次
+const RECONNECT_BASE_INTERVAL = 2000; // 基础重连间隔 2 秒
+let isAttemptingReconnect = false; // 防止并发重连
 
 async function attemptAutoReconnect() {
-  if (portRef || !autoReconnectEnabled) {
+  if (portRef || !autoReconnectEnabled || isAttemptingReconnect) {
     if (reconnectTimer) {
       clearTimeout(reconnectTimer);
       reconnectTimer = null;
@@ -74,13 +80,27 @@ async function attemptAutoReconnect() {
   const hasHistory = !!localStorage.getItem(LAST_PORT_KEY);
   if (!hasHistory) return;
 
-  console.log('正在寻找历史设备...');
-  const success = await connectExisting();
-  if (success) {
-    console.log('自动重连成功！');
-  } else {
-    // 1秒后再次尝试
-    reconnectTimer = setTimeout(attemptAutoReconnect, 1000);
+  // 达到最大重连次数，停止尝试
+  if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+    console.log('自动重连已达到最大尝试次数，已停止。');
+    return;
+  }
+
+  isAttemptingReconnect = true;
+  try {
+    reconnectAttempts++;
+    console.log(`[尝试 ${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS}] 正在寻找历史设备...`);
+    const success = await connectExisting();
+    if (success) {
+      console.log('自动重连成功！');
+      reconnectAttempts = 0; // 重置计数器
+    } else {
+      // 延迟后再次尝试，使用退避机制：随着尝试次数增加，间隔时间也增加
+      const delay = RECONNECT_BASE_INTERVAL * (1 + reconnectAttempts * 0.5);
+      reconnectTimer = setTimeout(attemptAutoReconnect, delay);
+    }
+  } finally {
+    isAttemptingReconnect = false;
   }
 }
 
@@ -124,7 +144,7 @@ export async function requestAndConnect(): Promise<string | null> {
     if (!nav || !nav.serial) return null
     const port = await nav.serial.requestPort()
     if (!port) return null
-    await port.open({ baudRate: 115200 })
+    await port.open({ baudRate: 9600 })
     portRef = port
     if (port.readable) {
       reader = port.readable.getReader()
@@ -139,11 +159,10 @@ export async function requestAndConnect(): Promise<string | null> {
     }
     startPolling()
     autoReconnectEnabled = true;
+    reconnectAttempts = 0; // 重置重连计数
     window.dispatchEvent(new CustomEvent('serial-connected', { detail: { connected: true, label: connectedLabel } }))
     return connectedLabel
   } catch (e) {
-    autoReconnectEnabled = true; // 即使失败也允许后续重连
-    attemptAutoReconnect(); 
     console.warn('requestAndConnect failed', e)
     return null
   }
@@ -183,7 +202,7 @@ export async function connectExisting(index = 0): Promise<boolean> {
     if (!port) return false
     
     try {
-      await port.open({ baudRate: 115200 })
+      await port.open({ baudRate: 9600 })
     } catch (e: any) {
       if (e.name === 'InvalidStateError' || e.message?.includes('already open')) {
          // Ignore
@@ -213,6 +232,7 @@ export async function connectExisting(index = 0): Promise<boolean> {
 
 export async function disconnect() {
   autoReconnectEnabled = false;
+  reconnectAttempts = 0; // 重置重连计数
   try {
     stopPolling()
     readLoopRunning = false
@@ -394,6 +414,33 @@ function startReadLoop() {
 export function getConnectedLabel() { return connectedLabel }
 
 /**
+ * 控制自动重连功能
+ */
+export function setAutoReconnect(enabled: boolean) {
+  autoReconnectEnabled = enabled;
+  if (!enabled && reconnectTimer) {
+    clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+  }
+  console.log(`自动重连已${enabled ? '启用' : '禁用'}`);
+}
+
+/**
+ * 获取自动重连状态
+ */
+export function isAutoReconnectEnabled() {
+  return autoReconnectEnabled;
+}
+
+/**
+ * 重置重连计数器，允许重新开始重连尝试
+ */
+export function resetReconnectAttempts() {
+  reconnectAttempts = 0;
+  console.log('重连计数器已重置');
+}
+
+/**
  * Parsing logic for GRBL status reports: <Idle|WPos:0.000,0.000,0.000,0.000|...>
  */
 function parseStatus(line: string) {
@@ -456,4 +503,7 @@ export default {
   isWebSerialAvailable,
   sendRaw,
   getConnectedLabel,
+  setAutoReconnect,
+  isAutoReconnectEnabled,
+  resetReconnectAttempts,
 }

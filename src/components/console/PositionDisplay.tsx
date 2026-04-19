@@ -331,7 +331,7 @@ const PositionDisplay: FC = () => {
       
       <Box display="flex" gap={1} alignItems="stretch">
         <Grid container spacing={1} sx={{ flex: 1 }}>
-          <Grid item xs={3}>
+          <Grid size={3}>
             <PositionItem 
               label="X" value={pos.x} color="#facc15" 
               targetValue={targetPos.x} 
@@ -339,7 +339,7 @@ const PositionDisplay: FC = () => {
               onGo={handleGo}
             />
           </Grid>
-          <Grid item xs={3}>
+          <Grid size={3}>
             <PositionItem 
               label="Y" value={pos.y} color="#38bdf8" 
               targetValue={targetPos.y} 
@@ -347,7 +347,7 @@ const PositionDisplay: FC = () => {
               onGo={handleGo}
             />
           </Grid>
-          <Grid item xs={3}>
+          <Grid size={3}>
             <PositionItem 
               label="U" value={pos.u} color="#facc15" 
               targetValue={targetPos.u} 
@@ -355,7 +355,7 @@ const PositionDisplay: FC = () => {
               onGo={handleGo}
             />
           </Grid>
-          <Grid item xs={3}>
+          <Grid size={3}>
             <PositionItem 
               label="Z" value={pos.z} color="#38bdf8" 
               targetValue={targetPos.z} 

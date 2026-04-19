@@ -53,19 +53,22 @@ const EXAMPLES = [
 ]
 
 // 使用 Vite raw 导入 demo 文件内容（如果项目设置支持 ?raw）
-// 相对路径从当前文件到 src/assets/gcode/demo.gcode
+// 相对路径从当前文件到 src/assets/GCODE/demo.gcode
 let demoRaw: string | null = null
 try {
   // eslint-disable-next-line @typescript-eslint/ban-ts-comment
   // @ts-ignore - Vite raw import
-  demoRaw = require('../../assets/gcode/demo.gcode?raw') as string
+  demoRaw = require('../../assets/GCODE/demo.gcode?raw') as string
 } catch (e) {
   demoRaw = null
 }
 
-export default function GCodeInput() {
+export default function GCodeInput({ value, onValueChange, currentIndex: externalIndex }: { 
+  value: string, 
+  onValueChange: (v: string) => void,
+  currentIndex: number 
+}) {
   const { model } = useWing()
-  const [value, setValue] = useState<string>('')
   const taRef = useRef<HTMLTextAreaElement | null>(null)
   const [lines, setLines] = useState<string[]>([])
   const [lineMap, setLineMap] = useState<number[]>([]) // Maps index in 'lines' to original line index in 'value'
@@ -73,9 +76,18 @@ export default function GCodeInput() {
   const [paused, setPaused] = useState(false)
   const [followScroll, setFollowScroll] = useState(true)
   const [currentIndex, setCurrentIndex] = useState(0)
+
+  // 当外部进度改变时，更新内部进度（用于同步预览条）
+  useEffect(() => {
+    if (!running && externalIndex !== currentIndex) {
+      setCurrentIndex(externalIndex);
+    }
+  }, [externalIndex, running]);
+
+  const setValue = onValueChange; // 兼容旧逻辑
   const awaitingAckRef = useRef(false)
   const [status, setStatus] = useState<string>('')
-  const TIMEOUT_MS = 8000
+  const TIMEOUT_MS = 30000  // 波特率 9600 时需要更长的超时（115200时的约4倍）
   const MAX_RETRIES = 2
 
   // 碳管打孔参数控制
@@ -95,26 +107,116 @@ export default function GCodeInput() {
   const [svgScale, setSvgScale] = useState<number>(1.0)
   const [svgEntryY, setSvgEntryY] = useState<number>(10)
 
+  // 更多生成工具下拉菜单
+  const [toolsAnchorEl, setToolsAnchorEl] = useState<null | HTMLElement>(null);
+
+  const handleOpenTools = (event: React.MouseEvent<HTMLButtonElement>) => {
+    setToolsAnchorEl(event.currentTarget);
+  };
+
+  const handleCloseTools = () => {
+    setToolsAnchorEl(null);
+  };
+
+  // 导入设计下拉菜单
+  const [importAnchorEl, setImportAnchorEl] = useState<null | HTMLElement>(null);
+
+  const handleImportFromDesign = (event: React.MouseEvent<HTMLButtonElement>) => {
+    if (model.previewGcodeData) {
+      setImportAnchorEl(event.currentTarget)
+    } else {
+      setStatus('设计预览暂无 G-code 可导入')
+    }
+  }
+
+  const handleSelectImport = (type: 'left' | 'right' | 'both') => {
+    if (model.previewGcodeData) {
+      const code = model.previewGcodeData[type]
+      if (code) {
+        setValue(code)
+        setStatus(`已从设计面板导入: ${type === 'left' ? '左翼' : type === 'right' ? '右翼' : '双面双翼'}`)
+      }
+    }
+    setImportAnchorEl(null)
+  }
+
   const generateSvgGCode = () => {
-    const paths = svgCode.match(/d="([^"]+)"/g);
-    if (!paths) {
-      setStatus('错误：未找到路径 (d 属性)');
-      return;
+    let allPaths: string[] = [];
+    
+    try {
+      const parser = new DOMParser();
+      // 容错处理：确保作为一个原生 XML/SVG 文档解析
+      const xmlString = svgCode.includes('<svg') ? svgCode : `<svg xmlns="http://www.w3.org/2000/svg">${svgCode}</svg>`;
+      const doc = parser.parseFromString(xmlString, "image/svg+xml");
+      
+      // 提取 <path>
+      doc.querySelectorAll('path').forEach(p => {
+        if (p.getAttribute('d')) allPaths.push(p.getAttribute('d')!);
+      });
+      
+      // 自动转换 <line> 为等效的 path
+      doc.querySelectorAll('line').forEach(l => {
+        const x1 = l.getAttribute('x1') || '0';
+        const y1 = l.getAttribute('y1') || '0';
+        const x2 = l.getAttribute('x2') || '0';
+        const y2 = l.getAttribute('y2') || '0';
+        allPaths.push(`M ${x1} ${y1} L ${x2} ${y2}`);
+      });
+      
+      // 自动转换 <polyline> 和 <polygon>
+      doc.querySelectorAll('polyline, polygon').forEach(p => {
+        const pts = p.getAttribute('points');
+        if (pts) {
+           const points = pts.trim().split(/[\s,]+/);
+           if (points.length >= 2) {
+             let d = `M ${points[0]} ${points[1]}`;
+             for(let i=2; i<points.length - 1; i+=2) {
+               d += ` L ${points[i]} ${points[i+1]}`;
+             }
+             if (p.tagName.toLowerCase() === 'polygon') d += ' Z';
+             allPaths.push(d);
+           }
+        }
+      });
+      
+      // 自动转换 <rect>
+      doc.querySelectorAll('rect').forEach(r => {
+        const x = parseFloat(r.getAttribute('x') || '0');
+        const y = parseFloat(r.getAttribute('y') || '0');
+        const w = parseFloat(r.getAttribute('width') || '0');
+        const h = parseFloat(r.getAttribute('height') || '0');
+        if (w > 0 && h > 0) {
+          allPaths.push(`M ${x} ${y} L ${x+w} ${y} L ${x+w} ${y+h} L ${x} ${y+h} Z`);
+        }
+      });
+    } catch(e) {
+      console.error('SVG Parse Error:', e);
+    }
+
+    // 后备提取方案：直接用死板政则提取
+    if (allPaths.length === 0) {
+      const matches = svgCode.match(/d="([^"]+)"/g);
+      if (matches) {
+        matches.forEach(m => allPaths.push(m.slice(3, -1)));
+      } else {
+        setStatus('错误：未能从输入的 SVG 中识别到路径坐标或图形');
+        return;
+      }
     }
 
     let gcode = `G91\n; SVG Import Scale: ${svgScale}, Entry Y: ${svgEntryY}\n`;
     
-    // 1. 垂直进刀 (向上同步移动 Y/Z)
+    // 强制将 Entry Y 应用为正向 (向上)
     if (svgEntryY !== 0) {
-      gcode += `G1 Y${svgEntryY.toFixed(3)} Z${svgEntryY.toFixed(3)} F1600\n`;
+      const entryVal = Math.abs(svgEntryY);
+      gcode += `G1 Y${entryVal.toFixed(3)} Z${entryVal.toFixed(3)} F1600\n`;
     }
 
     let pathFound = false;
 
-    paths.forEach(pAttr => {
-      const d = pAttr.slice(3, -1);
-      // 正则解析：命令字母 + 坐标数值
-      const tokens = d.match(/([a-df-z])|([-.\d]+)/gi);
+    allPaths.forEach(d => {
+      // 更强大精确的正则提取
+      const tokens = d.match(/([a-zA-Z])|(-?\d*\.?\d+(?:e[-+]?\d+)?)/gi);
       if (!tokens) return;
 
       pathFound = true;
@@ -124,7 +226,7 @@ export default function GCodeInput() {
 
       for (let i = 0; i < tokens.length; i++) {
         const token = tokens[i];
-        if (/[a-df-z]/i.test(token)) {
+        if (/[a-zA-Z]/i.test(token)) {
           currentCmd = token;
           continue;
         }
@@ -134,30 +236,39 @@ export default function GCodeInput() {
 
         if (cmdType === 'M' || cmdType === 'L') {
           const nx = parseFloat(token) * svgScale;
-          const ny = parseFloat(tokens[++i]) * svgScale;
+          const nyToken = tokens[++i];
+          if (nyToken === undefined) break; 
+          const ny = parseFloat(nyToken) * svgScale;
           
           const dx = isRelative ? nx : (nx - lastX);
-          const dy = isRelative ? -ny : -(ny - lastY); // Y轴镜像
+          // 彻底对齐用户习惯：SVG Y 减小 = 向上 = 正坐标位移
+          // SVG 50 -> 10 => ny - lastY = -40 => dy = 40 (正)
+          const dy = isRelative ? -ny : -(ny - lastY); 
 
           gcode += `G1 X${dx.toFixed(3)} Y${dy.toFixed(3)} U${dx.toFixed(3)} Z${dy.toFixed(3)} F400\n`;
           
           lastX = isRelative ? (lastX + nx) : nx;
           lastY = isRelative ? (lastY + ny) : ny;
-          if (cmdType === 'M') { startX = lastX; startY = lastY; }
-        } 
-        else if (cmdType === 'H') { // 水平直线
+          if (cmdType === 'M') { 
+            startX = lastX; 
+            startY = lastY; 
+            currentCmd = isRelative ? 'l' : 'L';
+          }
+        }  
+        else if (cmdType === 'H') {
           const nx = parseFloat(token) * svgScale;
           const dx = isRelative ? nx : (nx - lastX);
           gcode += `G1 X${dx.toFixed(3)} U${dx.toFixed(3)} F400\n`;
           lastX = isRelative ? (lastX + nx) : nx;
         }
-        else if (cmdType === 'V') { // 垂直直线
+        else if (cmdType === 'V') {
           const ny = parseFloat(token) * svgScale;
+          // 同样取反
           const dy = isRelative ? -ny : -(ny - lastY);
           gcode += `G1 Y${dy.toFixed(3)} Z${dy.toFixed(3)} F400\n`;
           lastY = isRelative ? (lastY + ny) : ny;
         }
-        else if (cmdType === 'C') { // 三次贝塞尔曲线 (转化为4段直线逼近)
+        else if (cmdType === 'C') {
           const x1 = parseFloat(token), y1 = parseFloat(tokens[++i]);
           const x2 = parseFloat(tokens[++i]), y2 = parseFloat(tokens[++i]);
           const x3 = parseFloat(tokens[++i]), y3 = parseFloat(tokens[++i]);
@@ -170,17 +281,22 @@ export default function GCodeInput() {
           const px3 = isRelative ? (px0 + x3) : x3;
           const py3 = isRelative ? (py0 + y3) : y3;
 
-          for (let t = 0.25; t <= 1.0; t += 0.25) {
+          for (let t = 0.02; t <= 1.0; t += 0.02) {
             const tx = Math.pow(1-t,3)*px0 + 3*Math.pow(1-t,2)*t*px1 + 3*(1-t)*t*t*px2 + Math.pow(t,3)*px3;
             const ty = Math.pow(1-t,3)*py0 + 3*Math.pow(1-t,2)*t*py1 + 3*(1-t)*t*t*py2 + Math.pow(t,3)*py3;
-            const dx = (tx * svgScale) - lastX;
-            const dy = -(ty * svgScale - lastY); 
+            const txScaled = tx * svgScale;
+            const tyScaled = ty * svgScale;
+            
+            const dx = txScaled - lastX;
+            const dy = -(tyScaled - lastY); // Y 位移差取反
+            
             gcode += `G1 X${dx.toFixed(3)} Y${dy.toFixed(3)} U${dx.toFixed(3)} Z${dy.toFixed(3)} F400\n`;
-            lastX = tx * svgScale; lastY = ty * svgScale;
+            lastX = txScaled; 
+            lastY = tyScaled;
           }
         }
-        else if (cmdType === 'A') { // 椭圆弧 (简化：仅移动到终点)
-          i += 5; // 跳过 rx, ry, axis-rot, large-arc, sweep
+        else if (cmdType === 'A') {
+          i += 5;
           const nx = parseFloat(tokens[++i]) * svgScale;
           const ny = parseFloat(tokens[++i]) * svgScale;
           const dx = isRelative ? nx : (nx - lastX);
@@ -189,23 +305,25 @@ export default function GCodeInput() {
           lastX = isRelative ? (lastX + nx) : nx;
           lastY = isRelative ? (lastY + ny) : ny;
         }
-        else if (cmdType === 'Z') { // 闭合路径
+        else if (cmdType === 'Z') {
           const dx = startX - lastX;
           const dy = -(startY - lastY);
           gcode += `G1 X${dx.toFixed(3)} Y${dy.toFixed(3)} U${dx.toFixed(3)} Z${dy.toFixed(3)} F400\n`;
-          lastX = startX; lastY = startY;
+          lastX = startX;
+          lastY = startY;
         }
       }
     });
 
     if (!pathFound) {
-      setStatus('未能解析出有效的坐标点');
+      setStatus('错误：未能识别到路径坐标');
       return;
     }
 
     // 2. 原路退回 (垂直向下退出)
     if (svgEntryY !== 0) {
-      gcode += `G1 Y-${svgEntryY.toFixed(3)} Z-${svgEntryY.toFixed(3)} F1600\n`;
+      const entryVal = Math.abs(svgEntryY);
+      gcode += `G1 Y-${entryVal.toFixed(3)} Z-${entryVal.toFixed(3)} F1600\n`;
     }
 
     gcode += `G90`;
@@ -263,14 +381,42 @@ export default function GCodeInput() {
     }
     
     // 2. 根据对齐方式调整圆心偏移并画圆
+    // 彻底修复：GRBL 发泡切割(4轴)通常不支持 G2/G3 的 IJ 模式跨多轴使用
+    // 因此这里改为用 36 段直线 (G1) 模拟画圆，确保两侧塔架同步
+    const drawCircle = (centerXOffset: number) => {
+      const circleSegments = 36;
+      let circleGcode = '';
+      const startAngle = Math.PI; // 从 180 度开始（相对于圆心）
+      
+      for (let i = 1; i <= circleSegments; i++) {
+        const angle = startAngle + (i / circleSegments) * 2 * Math.PI;
+        const prevAngle = startAngle + ((i - 1) / circleSegments) * 2 * Math.PI;
+        
+        // 计算两点之间的增量 (Relative ΔX, ΔY)
+        const dx = r * (Math.cos(angle) - Math.cos(prevAngle));
+        const dy = r * (Math.sin(angle) - Math.sin(prevAngle));
+        
+        circleGcode += `G1 X${dx.toFixed(3)} Y${dy.toFixed(3)} U${dx.toFixed(3)} Z${dy.toFixed(3)} F${fCut}\n`;
+      }
+      return circleGcode;
+    };
+
     if (sparAlign === 'center') {
-      gcode += `G1 X${r} U${r} F${fCut}\n`;
-      gcode += `G2 X0 Y0 I-${r} J0 F${fCut}\n`;
-      gcode += `G1 X-${r} U-${r} F${fCut}\n`; 
+      // 1. 先走到圆周起点 (最左侧)
+      gcode += `G1 X-${r.toFixed(3)} U-${r.toFixed(3)} F${fCut}\n`;
+      // 2. 画圆
+      gcode += drawCircle(0);
+      // 3. 回到中心
+      gcode += `G1 X${r.toFixed(3)} U${r.toFixed(3)} F${fCut}\n`; 
     } else if (sparAlign === 'left') {
-      gcode += `G2 X0 Y0 I${r} J0 F${fCut}\n`;
+      // 当前点即为左边缘，直接画圆 (圆心在当前点右侧 r 处)
+      // 我们先修正 drawCircle 逻辑，使其从起点绕一圈回到原位
+      gcode += drawCircle(r);
     } else if (sparAlign === 'right') {
-      gcode += `G2 X0 Y0 I-${r} J0 F${fCut}\n`;
+      // 当前点位右边缘，先走到左边缘再画圆
+      gcode += `G1 X-${(2*r).toFixed(3)} U-${(2*r).toFixed(3)} F${fCut}\n`;
+      gcode += drawCircle(0);
+      gcode += `G1 X${(2*r).toFixed(3)} U${(2*r).toFixed(3)} F${fCut}\n`;
     }
     
     // 3. 原路退出
@@ -286,25 +432,34 @@ export default function GCodeInput() {
   }
 
   useEffect(() => {
-    if (demoRaw != null) {
-      setValue(demoRaw)
-      return
-    }
-    // Fallback: try fetch from public path
-    fetch('/src/assets/gcode/demo.gcode')
-      .then(r => r.ok ? r.text() : '')
-      .then(t => { if (t) setValue(t) })
-      .catch(() => { /* ignore */ })
-  }, [])
+    // 只有当 value 为空时才加载默认 demo
+    if (value) return;
 
-  const handleImportFromDesign = () => {
-    if (model.previewGcode) {
-      setValue(model.previewGcode)
-      setStatus('从设计面板导入成功')
-    } else {
-      setStatus('设计预览暂无 G-code 可导入')
-    }
-  }
+    // 优先尝试从静态资源加载 demo.gcode
+    fetch('/src/assets/GCODE/demo.gcode')
+      .then(r => {
+        if (!r.ok) {
+          // 如果 /src/assets/GCODE/ 这种相对路径不可用，尝试根目录下的 /assets/GCODE/
+          return fetch('/assets/GCODE/demo.gcode')
+        }
+        return r
+      })
+      .then(r => {
+        if (!r.ok) throw new Error('Not found')
+        return r.text()
+      })
+      .then(t => { 
+        if (t) {
+          setValue(t)
+          setStatus('已加载 demo.gcode 示例文件')
+        }
+      })
+      .catch(() => { 
+        if (demoRaw) {
+          setValue(demoRaw)
+        }
+      })
+  }, [demoRaw, value])
 
   const handlePaste: React.ClipboardEventHandler<HTMLTextAreaElement> = (e) => {
     // 优先使用粘贴板内容替换当前文本
@@ -495,38 +650,32 @@ export default function GCodeInput() {
           />
         </Box>
         <Box display="flex" gap={1} alignItems="center">
-          {/* 碳管打孔触发按钮 */}
+          {/* 更多生成工具下拉菜单 */}
           <Button 
             size="small" 
             variant="outlined" 
-            color="secondary" 
-            onClick={() => setSparDialogOpen(true)}
+            color="primary" 
+            onClick={handleOpenTools}
             sx={{ fontWeight: 'bold', fontSize: 12, borderColor: '#334155' }}
           >
-            碳管打孔
+            特殊路径生成 ▼
           </Button>
-
-          {/* 实心圆柱触发按钮 */}
-          <Button 
-            size="small" 
-            variant="outlined" 
-            color="info" 
-            onClick={() => setCylinderDialogOpen(true)}
-            sx={{ fontWeight: 'bold', fontSize: 12, borderColor: '#334155' }}
+          <Menu
+            anchorEl={toolsAnchorEl}
+            open={Boolean(toolsAnchorEl)}
+            onClose={handleCloseTools}
+            PaperProps={{ sx: { bgcolor: '#1e293b', color: '#f1f5f9', border: '1px solid #334155' } }}
           >
-            实心圆柱
-          </Button>
-
-          {/* SVG 导入触发按钮 */}
-          <Button 
-            size="small" 
-            variant="outlined" 
-            color="success" 
-            onClick={() => setSvgDialogOpen(true)}
-            sx={{ fontWeight: 'bold', fontSize: 12, borderColor: '#334155' }}
-          >
-            SVG 导入
-          </Button>
+            <MenuItem onClick={() => { setSparDialogOpen(true); handleCloseTools(); }}>
+              <Typography variant="body2" sx={{ color: '#e879f9', fontWeight: 'bold' }}>碳管打孔</Typography>
+            </MenuItem>
+            <MenuItem onClick={() => { setCylinderDialogOpen(true); handleCloseTools(); }}>
+              <Typography variant="body2" sx={{ color: '#38bdf8', fontWeight: 'bold' }}>实心圆柱</Typography>
+            </MenuItem>
+            <MenuItem onClick={() => { setSvgDialogOpen(true); handleCloseTools(); }}>
+              <Typography variant="body2" sx={{ color: '#4ade80', fontWeight: 'bold' }}>SVG 导入</Typography>
+            </MenuItem>
+          </Menu>
 
           {/* SVG 参数弹窗 */}
           <Dialog open={svgDialogOpen} onClose={() => setSvgDialogOpen(false)} PaperProps={{ sx: { bgcolor: '#1e293b', color: '#f1f5f9', border: '1px solid #334155', minWidth: 400 } }}>
@@ -699,6 +848,19 @@ export default function GCodeInput() {
           </Menu>
 
           <Button size="small" variant="outlined" onClick={handleImportFromDesign} sx={{ color: '#38bdf8', borderColor: '#334155' }}>导入设计</Button>
+          <Menu
+            anchorEl={importAnchorEl}
+            open={Boolean(importAnchorEl)}
+            onClose={() => setImportAnchorEl(null)}
+            PaperProps={{
+              sx: { bgcolor: '#1e293b', color: '#f1f5f9', border: '1px solid #334155' }
+            }}
+          >
+            <MenuItem onClick={() => handleSelectImport('left')} sx={{ '&:hover': { bgcolor: '#334155' } }}>左翼 (Left Wing)</MenuItem>
+            <MenuItem onClick={() => handleSelectImport('right')} sx={{ '&:hover': { bgcolor: '#334155' } }}>右翼 (Right Wing)</MenuItem>
+            <MenuItem onClick={() => handleSelectImport('both')} sx={{ '&:hover': { bgcolor: 'rgba(251, 146, 60, 0.2)', color: '#fb923c' } }}>双面双翼 (Both Wings)</MenuItem>
+          </Menu>
+
           <Button size="small" variant="contained" color="success" onClick={handleStart} disabled={running} sx={{ fontWeight: 'bold' }}>开始</Button>
           <Button size="small" variant="contained" onClick={handlePause} disabled={!running} sx={{ bgcolor: '#facc15', color: '#000', '&:hover': { bgcolor: '#eab308' } }}>{paused ? '继续' : '暂停'}</Button>
           <Button size="small" variant="contained" color="error" onClick={handleStop} disabled={!running && !paused}>停止</Button>

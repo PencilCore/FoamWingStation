@@ -62,7 +62,7 @@ Sketch > Include Library > Add .ZIP Library
 ### 第四步：验证刷写成功
 
 1. 打开 Arduino IDE 的 **Serial Monitor**（右上角或 `Tools > Serial Monitor`）
-2. 波特率设置为 **115200**
+2. 波特率设置为 **9600**
 3. 如果看到类似输出，说明固件已成功启动：
    ```
    [MSG: Grbl 1.1f]
@@ -175,7 +175,7 @@ G1 F300 X100 Y100
 ### Q2: Serial Monitor 显示乱码
 
 **解决方案：**
-- 检查波特率是否为 **115200**（不是 9600 或其他）
+- 检查波特率是否为 **9600**（不是 115200 或其他）
 - 重新打开 Serial Monitor
 
 ### Q3: 电机不转或转向错误

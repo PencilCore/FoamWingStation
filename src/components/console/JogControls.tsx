@@ -1,7 +1,8 @@
 import React, { useEffect, useCallback, useState, useRef } from 'react'
-import { Box, Typography, Button } from '@mui/material'
+import { Box, Typography, Button, Menu, MenuItem } from '@mui/material'
 import { useWing } from '../../hooks/useWing'
 import * as serialService from '../../services/serialService'
+import { KeyboardArrowDown } from '@mui/icons-material'
 
 const padStyle: React.CSSProperties = {
   display: 'grid',
@@ -17,6 +18,16 @@ function JogControls() {
   const xyuv = model.xyuvMode || ['x', 'y', 'u', 'z']
   const [stepSize, setStepSize] = useState(1);
   const [manualSpeed, setManualSpeed] = useState(400);
+  
+  const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
+  const open = Boolean(anchorEl);
+  const handleSpeedClick = (event: React.MouseEvent<HTMLButtonElement>) => {
+    setAnchorEl(event.currentTarget);
+  };
+  const handleSpeedClose = (speed?: number) => {
+    if (speed) setManualSpeed(speed);
+    setAnchorEl(null);
+  };
 
   useEffect(() => {
     // Notify other components about manual speed change
@@ -114,8 +125,45 @@ function JogControls() {
     <Box display="flex" flexDirection="column" gap={2}>
       <Box display="flex" justifyContent="space-between" alignItems="center">
         <Typography variant="subtitle2" sx={{ color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 1 }}>Jog Control</Typography>
-        <Box display="flex" gap={0.5}>
-          {[0.1, 1, 2, 5, 10, 25, 50].map(s => (
+        <Box display="flex" gap={0.5} alignItems="center">
+          {/* 手动速度下拉按钮 */}
+          <Button
+            size="small"
+            variant="outlined"
+            onClick={handleSpeedClick}
+            endIcon={<KeyboardArrowDown sx={{ fontSize: 12 }} />}
+            sx={{ 
+              minWidth: 80, 
+              height: 24, 
+              fontSize: 10, 
+              mr: 1, 
+              borderColor: '#10b981', 
+              color: '#10b981',
+              '&:hover': { borderColor: '#059669', bgcolor: 'rgba(16, 185, 129, 0.05)' }
+            }}
+          >
+            F: {manualSpeed}
+          </Button>
+          <Menu
+            anchorEl={anchorEl}
+            open={open}
+            onClose={() => handleSpeedClose()}
+            PaperProps={{
+              sx: { bgcolor: '#1e293b', border: '1px solid #334155', color: '#f8fafc' }
+            }}
+          >
+            {[400, 800, 1600, 3200].map(s => (
+              <MenuItem 
+                key={s} 
+                onClick={() => handleSpeedClose(s)}
+                sx={{ fontSize: 11, '&:hover': { bgcolor: 'rgba(16, 185, 129, 0.1)' } }}
+              >
+                {s} mm/min
+              </MenuItem>
+            ))}
+          </Menu>
+
+          {[0.1, 1, 10, 25, 50].map(s => (
             <Button
               key={s}
               size="small"
@@ -129,39 +177,9 @@ function JogControls() {
         </Box>
       </Box>
 
-      {/* 归零面板与速度设置 */}
-      <Box sx={{ display: 'flex', gap: 1.5, alignItems: 'stretch' }}>
-        <Box sx={{ 
-          bgcolor: 'rgba(255, 255, 255, 0.03)', 
-          border: '1px solid #334155', 
-          borderRadius: 2, 
-          p: 1.5,
-          flex: 1,
-          display: 'flex',
-          flexDirection: 'column',
-          justifyContent: 'center',
-          gap: 1
-        }}>
-          <Typography variant="caption" sx={{ color: '#94a3b8', textAlign: 'center' }}>手动速度 (F)</Typography>
-          <Box display="flex" flexWrap="wrap" gap={0.5} justifyContent="center">
-            {[400, 800, 1600, 3200].map(s => (
-              <Button
-                key={s}
-                size="small"
-                variant={manualSpeed === s ? "contained" : "outlined"}
-                onClick={() => setManualSpeed(s)}
-                sx={{ 
-                  flex: '1 1 40%', minWidth: 40, p: '2px 4px', fontSize: 10, 
-                  borderColor: manualSpeed === s ? '#10b981' : '#475569', 
-                  bgcolor: manualSpeed === s ? '#10b981' : 'transparent',
-                  color: '#fff' 
-                }}
-              >
-                {s}
-              </Button>
-            ))}
-          </Box>
-        </Box>
+      {/* 归零面板 (原有的速度设置面板已整合到上方菜单，此处可留空或移除) */}
+      <Box sx={{ display: 'none', gap: 1.5, alignItems: 'stretch' }}>
+        {/* 原速度设置 HTML 已隐藏 */}
       </Box>
 
       <Box display="flex" justifyContent="space-around" alignItems="start">

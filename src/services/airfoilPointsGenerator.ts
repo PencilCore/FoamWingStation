@@ -59,7 +59,8 @@ export async function airfoilPointsGenerator(model: WingModel): Promise<Generate
 
   // 先分别变换
   let root0 = transform(rRaw, rootChord, rootRotation as number, rootOffsetX || 0, rootOffsetY || 0, rootThickness);
-  // 应用 leadingEdgeSweep 到翼尖 X 坐标，以及应用 washout 到尖部旋转
+  // 应用 leadingEdgeSweep 到翼尖 X 坐标，以及应用 washout (整体扭转) 到尖部旋转
+  // 按照惯例，Washout 会使翼尖向下扭转（负值），这里将其叠加上去
   const actualTipRotation = (tipRotation as number) + (model.washout || 0);
   let tip0 = transform(tRaw, tipChord, actualTipRotation, (tipOffsetX || 0) + (model.leadingEdgeSweep || 0), tipOffsetY || 0, tipThickness);
 

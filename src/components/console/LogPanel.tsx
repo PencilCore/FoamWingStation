@@ -132,7 +132,7 @@ export default function LogPanel() {
             </Select>
           </Box>
         </Box>
-        <Typography variant="caption" sx={{ color: '#64748b', flexShrink: 0 }}>115200, 8, N, 1</Typography>
+        <Typography variant="caption" sx={{ color: '#64748b', flexShrink: 0 }}>9600, 8, N, 1</Typography>
       </Box>
 
       <Box ref={containerRef} flex={1} sx={{ color: '#10b981', fontFamily: 'JetBrains Mono, Consolas, monospace', fontSize: 12, p: 1, overflowY: 'auto' }}>

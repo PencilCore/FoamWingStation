@@ -49,7 +49,14 @@ function wingsurfaceGcodeGen(
   const mm = (v: number) => (model.unit === 'inch' ? v * 25.4 : v);
 
   const formatG1 = (x: number, y: number, u: number, z: number, comment = '') => {
-    return `G1 X${(x + shiftX).toFixed(3)} Y${(y + shiftY).toFixed(3)} Z${(z + shiftY).toFixed(3)} U${(u + shiftX).toFixed(3)} F${feedrate}${comment ? ' ; ' + comment : ''}`;
+    const axes = model.xyuvMode || ['X', 'Y', 'U', 'Z'];
+    const parts = [
+      `${axes[0]}${(x + shiftX).toFixed(3)}`,
+      `${axes[1]}${(y + shiftY).toFixed(3)}`,
+      `${axes[2]}${(u + shiftX).toFixed(3)}`,
+      `${axes[3]}${(z + shiftY).toFixed(3)}`
+    ];
+    return `G1 ${parts.join(' ')} F${feedrate}${comment ? ' ; ' + comment : ''}`;
   };
 
   if (!options.skipHeader) {
@@ -131,20 +138,20 @@ export async function generateGcode(model: WingModel): Promise<GcodeResult> {
         skipHeader: true, skipHome: true, skipLeadIn: true
       });
 
-      const axes = model.xyuvMode || ['X','Y','Z','U'];
+      const axes = model.xyuvMode || ['X','Y','U','Z'];
       // 强制安全高度至少高出泡沫 10mm
       const sH = Math.max(model.safeHeight || 50, model.foamThickness + 10);
       
       const transition = [
         '\n; --- Safe Outer Perimeter Transition ---',
         // 1. 在当前点位置垂直抬升
-        `G1 ${axes[1]}${sH} ${axes[2]}${sH} F1000 ; Lift up`,
+        `G1 ${axes[1]}${sH.toFixed(3)} ${axes[3]}${sH.toFixed(3)} F1000 ; Lift up`,
         // 2. 先移动到后方安全坐标 (最大 X 之外)，确保绕过泡沫，而不是从中间穿过
-        `G1 ${axes[0]}${Math.max(firstWing.lastPos.x, secondWing.firstPos.x) + 20} ${axes[3]}${Math.max(firstWing.lastPos.u, secondWing.firstPos.u) + 20} F1200 ; Move to outer safety margin`,
+        `G1 ${axes[0]}${(Math.max(firstWing.lastPos.x, secondWing.firstPos.x) + 20).toFixed(3)} ${axes[2]}${(Math.max(firstWing.lastPos.u, secondWing.firstPos.u) + 20).toFixed(3)} F1200 ; Move to outer safety margin`,
         // 3. 水平平移到第二片起始 X 位置
-        `G1 ${axes[0]}${secondWing.firstPos.x.toFixed(3)} ${axes[3]}${secondWing.firstPos.u.toFixed(3)} F1200 ; Align with second wing start`,
+        `G1 ${axes[0]}${secondWing.firstPos.x.toFixed(3)} ${axes[2]}${secondWing.firstPos.u.toFixed(3)} F1200 ; Align with second wing start`,
         // 4. 下隆到起刀高度
-        `G1 ${axes[1]}${secondWing.firstPos.y.toFixed(3)} ${axes[2]}${secondWing.firstPos.z.toFixed(3)} F800 ; Descent`,
+        `G1 ${axes[1]}${secondWing.firstPos.y.toFixed(3)} ${axes[3]}${secondWing.firstPos.z.toFixed(3)} F800 ; Descent`,
       ];
 
       bothGcodeLines = [

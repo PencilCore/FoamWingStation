@@ -41,8 +41,13 @@ export interface WingModel {
   /** 泡沫块整体旋转（度），正值为逆时针，负值为顺时针。默认 -90（顺时针90°） */
   foamRotation: number;
 
-  /** 当前预览的 G-code 字符串 */
-  previewGcode?: string;
+  /** 当前预览的 G-code 字符串组 */
+  previewGcodeData?: {
+    left: string;
+    right: string;
+    both: string;
+    warnings: string[];
+  };
 
   /** 泡沫块 Z 方向偏移 (mm)，从龙门架 Z=0 起算 */
   foamOffsetZ: number;

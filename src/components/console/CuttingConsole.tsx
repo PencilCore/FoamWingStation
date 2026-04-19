@@ -4,7 +4,13 @@ import JogControls from './JogControls'
 import LogPanel from './LogPanel'
 import PositionDisplay from './PositionDisplay'
 
-export default function CuttingConsole() {
+interface CuttingConsoleProps {
+  gcode: string;
+  onGcodeChange: (code: string) => void;
+  currentIndex: number;
+}
+
+export default function CuttingConsole({ gcode, onGcodeChange, currentIndex }: CuttingConsoleProps) {
   return (
     <Box display="flex" flexDirection="column" height="100%" bgcolor="#1e293b" color="#f8fafc" overflow="hidden">
       {/* 顶部：实时状态与位置显示 */}
@@ -16,7 +22,7 @@ export default function CuttingConsole() {
       <Box flex={1} display="flex" overflow="hidden">
         {/* 左侧：G-code 查看器 */}
         <Box flex={1.2} p={2} borderRight="1px solid #334155" display="flex" flexDirection="column">
-          <GCodeInput />
+          <GCodeInput value={gcode} onValueChange={onGcodeChange} currentIndex={currentIndex} />
         </Box>
 
         {/* 右侧：Jog 手柄和动作按钮 */}

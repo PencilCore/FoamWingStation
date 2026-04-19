@@ -12,26 +12,25 @@ import BasicParams from './design/BasicParams';
 import WingTipConfig from './design/WingTipConfig';
 import WingRootConfig from './design/WingRootConfig';
 import MachineParams from './design/MachineParams';
-import AdvancedMachineParams from './design/AdvancedMachineParams';
 import GcodeExporter from './design/GcodeExporter';
 import AirfoilConnectionConfig from './design/AirfoilConnectionConfig';
 import CuttingSettings from './design/CuttingSettings';
-import ConfigManager from './design/ConfigManager';
+import WingLayoutConfig from './design/WingLayoutConfig';
 import { useWing } from '../hooks/useWing';
 
 // 扩展 tabConfig 以包含导出设置的 Tab，便于演示 design_idx = 7 的效果
 const tabConfig = [
   { label: '基本设计', component: <BasicParams /> },      // 0
-  { label: '配置管理', component: <ConfigManager /> },    // 1
-  { label: '翼根配置', component: <WingRootConfig /> },    // 2
-  { label: '翼尖配置', component: <WingTipConfig /> },    // 3
+  { label: '翼根配置', component: <WingRootConfig /> },    // 1
+  { label: '翼尖配置', component: <WingTipConfig /> },    // 2
+  { label: '双翼排布', component: <WingLayoutConfig /> },    // 3
   { label: '翼型连接', component: <AirfoilConnectionConfig /> },    // 4
-  { label: '机床与高级', component: <AdvancedMachineParams /> },   // 5
-  { label: '切割偏移', component: <CuttingSettings /> },     // 6
+  { label: '机床设置', component: <MachineParams /> },   // 5
+  { label: '切割设置', component: <CuttingSettings /> },     // 6
 
   // 索引 7 开始是“导出设置”
   { label: 'G-Code导出', component: <GcodeExporter /> }, // 7
-  { label: 'DXF导出 (开发中)', component: <MachineParams /> },    // 8
+  { label: 'DXF导出 (开发中)', component: <Box sx={{ p: 2, color: 'text.secondary' }}>此功能正在开发中</Box> },    // 8
 ];
 
 // 定义分割点：前 design_idx 个 Tab 属于设计参数
