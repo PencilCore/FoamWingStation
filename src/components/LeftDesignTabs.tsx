@@ -180,7 +180,10 @@ export default function LeftDesignTabs() {
 
       {/* 右侧内容区 */}
       <Box flex={1} overflow="auto" p={4} bgcolor="#0f172a" position="relative">
-        {activeTab === design_idx ? <GcodeExporter /> : (tabConfig[activeTab] ? tabConfig[activeTab].component : null)}
+        <Box sx={{ display: activeTab === design_idx ? 'block' : 'none', width: '100%', height: '100%' }}>
+          <GcodeExporter />
+        </Box>
+        {activeTab !== design_idx && (tabConfig[activeTab] ? tabConfig[activeTab].component : null)}
       </Box>
     </Box>
   );

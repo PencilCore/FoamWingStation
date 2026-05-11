@@ -15,31 +15,103 @@ if (typeof document !== 'undefined') {
   document.adoptedStyleSheets = document.adoptedStyleSheets || []
 }
 
-function FoamBlock({ width, height, offsetX = 0, offsetY = 0 }: { width?: number, height?: number, offsetX?: number, offsetY?: number }) {
-  const { model } = useWing()
-  const { foamChord, wingSpan, foamThickness, foamOffsetZ = 0 } = model
+/** 从 G-code 字符串解析出 XY 和 UZ 平面路径点 */
+function parseGcodeToPath(gcode: string, axes: string[], gd: number): { root: THREE.Vector3[], tip: THREE.Vector3[] } {
+  const rootPts: THREE.Vector3[] = [];
+  const tipPts: THREE.Vector3[] = [];
+  const lines = gcode.split('\n');
   
-  const w = width || foamChord
-  const h = height || foamThickness
-  // 泡沫块起点改为 foamOffsetZ
-  const foamZStart = foamOffsetZ
-  const hx = (w / 2) + offsetX
-  const hy = (h / 2) + offsetY
-  const hz = foamZStart + wingSpan / 2
+  for (const line of lines) {
+    const t = line.trim();
+    // 匹配 G0 或 G1 指令
+    if (!/^G[01]\b/i.test(t)) continue;
+    
+    const getVal = (axis: string) => {
+      const m = t.match(new RegExp(`${axis}([\\-\\d.]+)`, 'i'));
+      return m ? parseFloat(m[1]) : NaN;
+    };
+    
+    const x = getVal(axes[0]), y = getVal(axes[1]), u = getVal(axes[2]), z = getVal(axes[3]);
+    if (isNaN(x) && isNaN(y) && isNaN(u) && isNaN(z)) continue;
+    
+    // 使用上一个点的坐标作为默认（增量式逻辑简化：用第一个有效点填充）
+    const prevR = rootPts.length > 0 ? rootPts[rootPts.length - 1] : new THREE.Vector3(0, 0, 0);
+    const prevT = tipPts.length > 0 ? tipPts[tipPts.length - 1] : new THREE.Vector3(0, 0, gd);
+    
+    const rx = isNaN(x) ? prevR.x : x;
+    const ry = isNaN(y) ? prevR.y : y;
+    const ux = isNaN(u) ? prevT.x : u;
+    const uz = isNaN(z) ? prevT.y : z;
+    
+    rootPts.push(new THREE.Vector3(rx, ry, 0));
+    tipPts.push(new THREE.Vector3(ux, uz, gd));
+  }
+  return { root: rootPts, tip: tipPts };
+}
+
+function FoamBlock({ width, height, offsetX = 0, offsetY = 0 }: { width: number, height: number, offsetX: number, offsetY: number }) {
+  const { model } = useWing()
+  const { wingSpan, foamOffsetZ = 0 } = model
+  
+  const hx = offsetX + width / 2
+  const hy = offsetY + height / 2
+  const hz = foamOffsetZ + wingSpan / 2
   
   return (
     <mesh position={[hx, hy, hz]}> 
-      <boxGeometry args={[w, h, wingSpan]} />
+      <boxGeometry args={[width, height, wingSpan]} />
       <meshStandardMaterial 
-        color="#f8fafc" 
+        color="#64748b" 
         transparent 
-        opacity={0.1} 
+        opacity={0.12} 
+        roughness={0.8}
+        metalness={0}
         polygonOffset 
         polygonOffsetFactor={1} 
         polygonOffsetUnits={1}
         depthWrite={false}
       />
     </mesh>
+  )
+}
+
+/** 跟随刀头移动的马达模拟盒 — X+Y 联动 */
+function LiveMotorBox({ viewMode, leftData, rightData, bothData, percent, gantryDistance }: {
+  viewMode: 'left' | 'right' | 'both';
+  leftData: any; rightData: any; bothData?: any;
+  percent: number; gantryDistance: number;
+}) {
+  const getPos = (path: THREE.Vector3[], pct: number) => {
+    if (!path?.length) return { x: 0, y: 0 };
+    const idx = Math.max(0, Math.min(path.length - 1, Math.floor(pct * (path.length - 1))));
+    return { x: path[idx]?.x ?? 0, y: path[idx]?.y ?? 0 };
+  };
+  
+  let leftPos: { x: number, y: number }, rightPos: { x: number, y: number };
+  if (viewMode === 'both' && bothData) {
+    leftPos = getPos(bothData.fullPathRoot, percent / 100);
+    rightPos = getPos(bothData.fullPathTip, percent / 100);
+  } else {
+    const data = viewMode === 'left' ? leftData : rightData;
+    leftPos = getPos(data?.fullPathRoot, percent / 100);
+    rightPos = getPos(data?.fullPathTip, percent / 100);
+  }
+  
+  const motorW = 30, motorH = 40, motorD = 20;
+  
+  return (
+    <group>
+      {/* 左塔马达 (Z=0 外侧) — 跟随 leftPos (X,Y) */}
+      <mesh position={[leftPos.x - motorW / 2 - 8, leftPos.y, -motorD / 2]}>
+        <boxGeometry args={[motorW, motorH, motorD]} />
+        <meshStandardMaterial color="#3b82f6" transparent opacity={0.25} roughness={0.4} metalness={0.7} depthWrite={false} />
+      </mesh>
+      {/* 右塔马达 (Z=gd 外侧) — 跟随 rightPos (U,Z) */}
+      <mesh position={[rightPos.x - motorW / 2 - 8, rightPos.y, gantryDistance + motorD / 2]}>
+        <boxGeometry args={[motorW, motorH, motorD]} />
+        <meshStandardMaterial color="#f97316" transparent opacity={0.25} roughness={0.4} metalness={0.7} depthWrite={false} />
+      </mesh>
+    </group>
   )
 }
 
@@ -185,6 +257,8 @@ export default function ThreePreview() {
       return {
         wingRoot: winR,
         wingTip: winT,
+        gantryRoot: gR,   // 龙门架左端点路径（XY 平面，Z=0）
+        gantryTip: gT,    // 龙门架右端点路径（UZ 平面，Z=gd）
         fullPathRoot: [toV3(0, 0, 0), ...gR, toV3(0, 0, 0)],
         fullPathTip: [toV3(0, 0, gd), ...gT, toV3(0, 0, gd)],
         width,
@@ -197,51 +271,45 @@ export default function ThreePreview() {
     
     // 计算双翼模式下的右翼偏移位置
     const isVert = model.stackingMode === 'vertical';
+    // 垂直堆叠：X 偏移 = interWingOffsetX（两翼X对齐，仅微小调整），Y 偏移 = 上翼高度 + 间隙
+    // 水平堆叠：X 偏移 = 左翼宽度 + 间隙，Y 偏移 = interWingOffsetY（两翼Y对齐，仅微小调整）
     const xGap = isVert ? (model.interWingOffsetX ?? 0) : (leftData.width + (model.interWingOffsetX ?? 50));
-    const yShift = isVert ? (leftData.height + (model.interWingOffsetY ?? 20)) : (model.interWingOffsetY ?? 0);
+    const yShift = isVert ? (leftData.height + (model.interWingOffsetY ?? 30)) : (model.interWingOffsetY ?? 0);
     const rightDataOffset = getPoints(true, xGap, yShift, !!model.nestBoth); 
 
-    // 构建针对“双翼”模式的完整绕行路径（Red Path）
-    const safeH = Math.max(model.foamThickness + 10, 40);
-    const w1EndR = leftData.wingRoot[leftData.wingRoot.length - 1]; // 后缘
-    const w1EndT = leftData.wingTip[leftData.wingTip.length - 1];
-    const w2StartR = rightDataOffset.wingRoot[0]; // 第二片后缘
-    const w2StartT = rightDataOffset.wingTip[0];
+    // 构建平面内过渡路径：翼1终点 → 原点(0,0) → 翼2起点
+    const w1EndR = leftData.gantryRoot[leftData.gantryRoot.length - 1];
+    const w1EndT = leftData.gantryTip[leftData.gantryTip.length - 1];
+    const w2StartR = rightDataOffset.gantryRoot[0];
+    const w2StartT = rightDataOffset.gantryTip[0];
 
-    // 找到这一层（Wing1+Wing2）最大的 X 值作为安全绕行边
-    const maxX_W1 = Math.max(...leftData.wingRoot.map(p => p.x), ...leftData.wingTip.map(p => p.x));
-    const maxX_W2 = Math.max(...rightDataOffset.wingRoot.map(p => p.x), ...rightDataOffset.wingTip.map(p => p.x));
-    const safetyX = Math.max(maxX_W1, maxX_W2) + 20;
-
-    const transitionRoot = [
-      w1EndR,
-      toV3(w1EndR.x, safeH, 0), // 抬刀
-      toV3(safetyX, safeH, 0),    // 退出到安全 X
-      toV3(safetyX, w2StartR.y, 0), // 平移对齐
-      w2StartR // 下刀
-    ];
-    const transitionTip = [
-      w1EndT,
-      toV3(w1EndT.x, safeH, gd),
-      toV3(safetyX, safeH, gd),
-      toV3(safetyX, w2StartT.y, gd),
-      w2StartT
-    ];
-
-    const bothPathRoot = [
+    // 默认过渡路径（当 G-code 数据不可用时使用）
+    const defaultBothRoot = [
       toV3(0, 0, 0),
-      ...leftData.wingRoot,
-      ...transitionRoot,
-      ...rightDataOffset.wingRoot,
+      ...leftData.gantryRoot,
+      w1EndR, toV3(0, 0, 0), w2StartR,
+      ...rightDataOffset.gantryRoot,
       toV3(0, 0, 0)
     ];
-    const bothPathTip = [
+    const defaultBothTip = [
       toV3(0, 0, gd),
-      ...leftData.wingTip,
-      ...transitionTip,
-      ...rightDataOffset.wingTip,
+      ...leftData.gantryTip,
+      w1EndT, toV3(0, 0, gd), w2StartT,
+      ...rightDataOffset.gantryTip,
       toV3(0, 0, gd)
     ];
+
+    // 优先使用 G-code 解析的路径（保证与导出 G-code 完全一致）
+    let bothPathRoot = defaultBothRoot;
+    let bothPathTip = defaultBothTip;
+    if (model.previewGcodeData?.both) {
+      const axes = model.xyuvMode || ['X', 'Y', 'U', 'Z'];
+      const parsed = parseGcodeToPath(model.previewGcodeData.both, axes, gd);
+      if (parsed.root.length > 0) {
+        bothPathRoot = parsed.root;
+        bothPathTip = parsed.tip;
+      }
+    }
 
     return {
       left: leftData,
@@ -264,6 +332,8 @@ export default function ThreePreview() {
     model.pathMargin,
     model.interWingOffsetX,
     model.interWingOffsetY,
+    model.previewGcodeData,
+    model.xyuvMode,
     wingSpan, 
     model.foamOffsetZ
   ])
@@ -292,7 +362,7 @@ export default function ThreePreview() {
     if (left && right && rightOffset) {
        const isVert = model.stackingMode === 'vertical';
        const xGap = isVert ? (model.interWingOffsetX ?? 0) : (left.width + (model.interWingOffsetX ?? 50));
-       const yShift = isVert ? (left.height + (model.interWingOffsetY ?? 20)) : (model.interWingOffsetY ?? 0);
+       const yShift = isVert ? (left.height + (model.interWingOffsetY ?? 30)) : (model.interWingOffsetY ?? 0);
 
        if (viewMode === 'both') {
           return new THREE.Vector3(xGap / 2 + 10, yShift / 2, wingSpan / 2);
@@ -306,7 +376,7 @@ export default function ThreePreview() {
   }, [left, right, rightOffset, viewMode, model.interWingOffsetX, model.interWingOffsetY, model.stackingMode, foamChord, wingSpan, foamThickness])
 
 	return (
-    <div style={{ width: '100%', height: '100%', position: 'relative', background: '#0f172a', minHeight: 0, borderRadius: 12, overflow: 'hidden' }}>
+    <div style={{ width: '100%', height: '100%', position: 'relative', background: 'radial-gradient(ellipse at center, #1e293b 0%, #0f172a 70%)', minHeight: 0, borderRadius: 12, overflow: 'hidden', boxShadow: 'inset 0 0 60px rgba(0,0,0,0.5)' }}>
       <Canvas
         dpr={[1, 2]}
         camera={{
@@ -319,41 +389,81 @@ export default function ThreePreview() {
         shadows
       >
         
-  {/* 3. 增强灯光强度，改善可见度 */}
-  <ambientLight intensity={1.2} color="#ffffff" /> 
-  <directionalLight position={[200, 200, 200]} intensity={2.2} color="#ffffff" /> 
-  {/* 添加一个背光辅助照明 */}
-  <directionalLight position={[-200, -200, -200]} intensity={1.0} color="#cccccc" /> 
-  {/* 环境半球光帮助减少过暗阴影 */}
-  <hemisphereLight intensity={0.6} />
+  {/* 增强灯光：主光 + 补光 + 环境 */}
+  <ambientLight intensity={0.8} color="#bae6fd" /> 
+  <directionalLight position={[300, 400, 200]} intensity={2.5} color="#ffffff" castShadow /> 
+  <directionalLight position={[-200, 100, -300]} intensity={0.8} color="#e0f2fe" />
+  <directionalLight position={[0, -50, 100]} intensity={0.4} color="#94a3b8" />
+  <hemisphereLight intensity={0.5} color="#bae6fd" groundColor="#1e293b" />
         
-        {/* 使用 OrbitControls, 它提供了围绕 target 的稳定旋转 */}
         <OrbitControls
           makeDefault 
-          target={centerTarget} // 4. 设置旋转目标为模型的中心
-          enablePan={true}      // 启用平移
-          enableZoom={true}     // 启用缩放
-          // minPolarAngle={Math.PI / 4} // 限制俯仰角，防止进入模型底部
-          // maxPolarAngle={Math.PI / 1.1} // 限制俯仰角
+          target={centerTarget}
+          enablePan={true}
+          enableZoom={true}
         />
         
         <Grid 
-          args={[2000, 40]} 
-          cellColor="#334466" 
-          sectionColor="#1e293b" 
-          // 将网格稍微下移，使其位于模型下方
-          position={[centerTarget.x, -1, centerTarget.z]} 
+          args={[3000, 60]} 
+          cellColor="#334155" 
+          sectionColor="#1e293b"
+          sectionSize={10}
+          fadeDistance={2000}
+          position={[centerTarget.x, -2, centerTarget.z]} 
         />
 
         {/* 坐标轴保持不旋转 */}
         <Axes size={Math.max(foamChord, wingSpan, foamThickness, 200)} />
 
         <group rotation={[0, 0, 0]}>
-          {/* 单块或双块机翼共享的泡沫模型 */}
-          {left && right && (
-            <FoamBlock 
-              width={viewMode === 'both' && model.stackingMode === 'horizontal' ? (left.width + (model.interWingOffsetX ?? 50) + right.width + 20) : (left.width + 20)} 
-              height={viewMode === 'both' && model.stackingMode === 'vertical' ? (left.height + (model.interWingOffsetY ?? 20) + right.height + 20) : (model.foamThickness + 20)}
+          {/* 泡沫块 — 紧密包裹机翼 */}
+          {left && right && (() => {
+            const M = 5; // 紧贴边距
+            const isBoth = viewMode === 'both';
+            
+            if (isBoth) {
+              const pts1 = left.wingRoot;
+              const pts2 = rightOffset?.wingRoot || right.wingRoot;
+              if (!pts1.length && !pts2.length) return null;
+              const allX = [...pts1.map(p => p.x), ...pts2.map(p => p.x)];
+              const allY = [...pts1.map(p => p.y), ...pts2.map(p => p.y)];
+              if (!allX.length) return null;
+              const minX = Math.min(...allX), maxX = Math.max(...allX);
+              const minY = Math.min(...allY), maxY = Math.max(...allY);
+              return (
+                <FoamBlock 
+                  width={maxX - minX + M * 2} 
+                  height={maxY - minY + M * 2} 
+                  offsetX={minX - M} 
+                  offsetY={minY - M} 
+                />
+              );
+            }
+            // 单翼模式
+            const pts = (viewMode === 'right' ? right.wingRoot : left.wingRoot);
+            if (!pts.length) return null;
+            const allX = pts.map(p => p.x), allY = pts.map(p => p.y);
+            const minX = Math.min(...allX), maxX = Math.max(...allX);
+            const minY = Math.min(...allY), maxY = Math.max(...allY);
+            return (
+              <FoamBlock 
+                width={maxX - minX + M * 2} 
+                height={maxY - minY + M * 2} 
+                offsetX={minX - M} 
+                offsetY={minY - M} 
+              />
+            );
+          })()}
+
+          {/* 跟随刀头移动的马达盒 */}
+          {left && right && rightOffset && (
+            <LiveMotorBox
+              viewMode={viewMode}
+              leftData={left}
+              rightData={viewMode === 'both' ? rightOffset : right}
+              bothData={processedData?.both}
+              percent={percent}
+              gantryDistance={gantryDistance}
             />
           )}
 
@@ -397,18 +507,68 @@ export default function ThreePreview() {
             </group>
           )}
 
-          {/* 双翼模式下的完整路径及绕行 (Red Path) */}
+          {/* 双翼模式下的完整路径 */}
           {viewMode === 'both' && processedData?.both && (
             <>
-              <WingOutline points={processedData.both.fullPathRoot} color="#4ade80" opacity={0.3} lineWidth={1} />
-              <WingOutline points={processedData.both.fullPathTip} color="#f87171" opacity={0.3} lineWidth={1} />
+              <WingOutline points={processedData.both.fullPathRoot} color="#4ade80" opacity={0.6} lineWidth={2} />
+              <WingOutline points={processedData.both.fullPathTip} color="#f87171" opacity={0.6} lineWidth={2} />
             </>
           )}
 
-          {/* 实时位置热丝 */}
-          <Hotwire realPos={realPos} />
+          {/* 双翼模式翼面标签 */}
+          {viewMode === 'both' && left && rightOffset && model.stackingMode === 'vertical' && (
+            <>
+              <Text
+                position={[left.wingRoot[0]?.x - 15 || 0, (left.wingRoot[0]?.y || 0) + left.height / 2, wingSpan / 2]}
+                fontSize={18}
+                color="#a78bfa"
+                anchorX="right"
+                anchorY="middle"
+                fillOpacity={0.8}
+              >
+                上翼 (先切)
+              </Text>
+              <Text
+                position={[rightOffset.wingRoot[0]?.x - 15 || 0, (rightOffset.wingRoot[0]?.y || 0) + rightOffset.height / 2, wingSpan / 2]}
+                fontSize={18}
+                color="#38bdf8"
+                anchorX="right"
+                anchorY="middle"
+                fillOpacity={0.8}
+              >
+                下翼 (后切)
+              </Text>
+            </>
+          )}
+          {viewMode === 'both' && left && rightOffset && model.stackingMode === 'horizontal' && (
+            <>
+              <Text
+                position={[(left.wingRoot[0]?.x || 0) + left.width / 2, -20, wingSpan / 2]}
+                fontSize={18}
+                color="#a78bfa"
+                anchorX="center"
+                anchorY="middle"
+                fillOpacity={0.8}
+              >
+                左翼 (先切)
+              </Text>
+              <Text
+                position={[(rightOffset.wingRoot[0]?.x || 0) + rightOffset.width / 2, -20, wingSpan / 2]}
+                fontSize={18}
+                color="#38bdf8"
+                anchorX="center"
+                anchorY="middle"
+                fillOpacity={0.8}
+              >
+                右翼 (后切)
+              </Text>
+            </>
+          )}
+
+          {/* 实时位置热丝 — 仅非双翼模式显示 */}
+          {viewMode !== 'both' && <Hotwire realPos={realPos} />}
           
-          {/* 预览热丝 - 鲜绿色 */}
+          {/* 预览热丝 — 鲜绿色，双翼模式用合并路径 */}
           {left && right && rightOffset && (
             <PreviewHotwire 
               leftData={left}
@@ -544,14 +704,16 @@ function PreviewHotwire({ leftData, rightData, bothData, viewMode, percent }: {
 
   return (
     <group>
-      <DreiLine points={[start, end]} color="#4ade80" lineWidth={3} />
-      <mesh position={start.toArray()}>
-        <sphereGeometry args={[2.5, 16, 16]} />
-        <meshBasicMaterial color="#38bdf8" />
+      <DreiLine points={[start, end]} color="#4ade80" lineWidth={viewMode === 'both' ? 4 : 3} />
+      {/* 左塔球 */}
+      <mesh position={start.toArray()} frustumCulled={false}>
+        <sphereGeometry args={[viewMode === 'both' ? 3.5 : 2.5, 16, 16]} />
+        <meshStandardMaterial color="#38bdf8" emissive="#38bdf8" emissiveIntensity={0.6} depthTest={false} />
       </mesh>
-      <mesh position={end.toArray()}>
-        <sphereGeometry args={[2.5, 16, 16]} />
-        <meshBasicMaterial color="#fb923c" />
+      {/* 右塔球 */}
+      <mesh position={end.toArray()} frustumCulled={false}>
+        <sphereGeometry args={[viewMode === 'both' ? 3.5 : 2.5, 16, 16]} />
+        <meshStandardMaterial color="#fb923c" emissive="#fb923c" emissiveIntensity={0.6} depthTest={false} />
       </mesh>
     </group>
   );
@@ -662,14 +824,14 @@ function WingSurface({ rootPts, tipPts, color = '#7c3aed' }: { rootPts: THREE.Ve
         color={color} 
         side={THREE.DoubleSide} 
         transparent={true} 
-        opacity={0.4}
-        roughness={0.3}
-        metalness={0.8}
+        opacity={0.35}
+        roughness={0.4}
+        metalness={0.6}
         depthWrite={true}
         depthTest={true}
         polygonOffset
-        polygonOffsetFactor={-4}
-        polygonOffsetUnits={-4}
+        polygonOffsetFactor={-2}
+        polygonOffsetUnits={-2}
       />
     </mesh>
   );

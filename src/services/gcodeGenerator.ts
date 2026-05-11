@@ -126,11 +126,11 @@ export async function generateGcode(model: WingModel): Promise<GcodeResult> {
     if (model.generateBoth) {
       const isVert = model.stackingMode === 'vertical';
       const extraX = isVert ? (model.interWingOffsetX || 0) : (leftRes.width + (model.interWingOffsetX || 50));
-      const extraY = isVert ? (leftRes.height + (model.interWingOffsetY || 20)) : (model.interWingOffsetY || 0);
+      const extraY = isVert ? (leftRes.height + (model.interWingOffsetY || 30)) : (model.interWingOffsetY || 0);
 
       // 第一片机翼
-      const firstWing = wingsurfaceGcodeGen(rootProfile, tipProfile, model, warnings, false, 0, 0, false, { 
-        skipLeadOut: true, skipHome: true 
+      const firstWing = wingsurfaceGcodeGen(rootProfile, tipProfile, model, warnings, false, 0, 0, false, {
+        skipLeadOut: true, skipHome: true
       });
 
       // 第二片机翼
@@ -139,19 +139,14 @@ export async function generateGcode(model: WingModel): Promise<GcodeResult> {
       });
 
       const axes = model.xyuvMode || ['X','Y','U','Z'];
-      // 强制安全高度至少高出泡沫 10mm
-      const sH = Math.max(model.safeHeight || 50, model.foamThickness + 10);
-      
+      const homeCmd = `G1 ${axes[0]}0 ${axes[1]}0 ${axes[2]}0 ${axes[3]}0`;
+
+      // 过渡段：归零回原点 → 平面内直接移动到第二片进刀点
+      // 仿照单翼切割：路径始终在 XY 平面（左塔）和 UZ 平面（右塔）内
       const transition = [
-        '\n; --- Safe Outer Perimeter Transition ---',
-        // 1. 在当前点位置垂直抬升
-        `G1 ${axes[1]}${sH.toFixed(3)} ${axes[3]}${sH.toFixed(3)} F1000 ; Lift up`,
-        // 2. 先移动到后方安全坐标 (最大 X 之外)，确保绕过泡沫，而不是从中间穿过
-        `G1 ${axes[0]}${(Math.max(firstWing.lastPos.x, secondWing.firstPos.x) + 20).toFixed(3)} ${axes[2]}${(Math.max(firstWing.lastPos.u, secondWing.firstPos.u) + 20).toFixed(3)} F1200 ; Move to outer safety margin`,
-        // 3. 水平平移到第二片起始 X 位置
-        `G1 ${axes[0]}${secondWing.firstPos.x.toFixed(3)} ${axes[2]}${secondWing.firstPos.u.toFixed(3)} F1200 ; Align with second wing start`,
-        // 4. 下隆到起刀高度
-        `G1 ${axes[1]}${secondWing.firstPos.y.toFixed(3)} ${axes[3]}${secondWing.firstPos.z.toFixed(3)} F800 ; Descent`,
+        '\n; --- Transition: Wing 1 → Home → Wing 2 ---',
+        `${homeCmd} F1200 ; Return home between wings`,
+        `G1 ${axes[0]}${secondWing.firstPos.x.toFixed(3)} ${axes[1]}${secondWing.firstPos.y.toFixed(3)} ${axes[2]}${secondWing.firstPos.u.toFixed(3)} ${axes[3]}${secondWing.firstPos.z.toFixed(3)} F800 ; Move to second wing start`,
       ];
 
       bothGcodeLines = [
@@ -159,8 +154,7 @@ export async function generateGcode(model: WingModel): Promise<GcodeResult> {
         ...transition,
         ...secondWing.gcode,
         '\n; --- Final Reset to Home ---',
-        `G1 ${axes[1]}${sH} ${axes[2]}${sH} F1000 ; Final Lift`,
-        `G1 ${axes[0]}0 ${axes[1]}0 ${axes[2]}0 ${axes[3]}0 F1200 ; Return Home`
+        `${homeCmd} F1200 ; Return Home`
       ];
     }
 
