@@ -11,7 +11,7 @@ export default function LogPanel() {
   const containerRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
-    const onData = (e: any) => {
+    const onData = (e: CustomEvent<{ data?: string }>) => {
       const d = e.detail?.data ?? String(e.detail)
       // split incoming chunk into lines, skip empty lines to avoid excessive blank rows
       const parts = String(d).split(/\r?\n/).map(p => p.trim()).filter(p => p.length > 0)
@@ -35,15 +35,15 @@ export default function LogPanel() {
         })
       }
     }
-    const onConn = (e: any) => {
+    const onConn = (e: CustomEvent<{ connected: boolean; label?: string }>) => {
       const lbl = e.detail?.label ?? (e.detail?.connected ? serialService.getConnectedLabel() : null)
       setLogs(prev => [...prev, `* serial ${e.detail?.connected ? 'connected' : 'disconnected'}${lbl ? ` (${lbl})` : ''}`])
     }
-    window.addEventListener('serial-data', onData as any)
-    window.addEventListener('serial-connected', onConn as any)
+    window.addEventListener('serial-data', onData)
+    window.addEventListener('serial-connected', onConn)
     return () => {
-      window.removeEventListener('serial-data', onData as any)
-      window.removeEventListener('serial-connected', onConn as any)
+      window.removeEventListener('serial-data', onData)
+      window.removeEventListener('serial-connected', onConn)
     }
   }, [])
 

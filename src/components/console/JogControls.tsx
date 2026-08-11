@@ -13,6 +13,41 @@ const padStyle: React.CSSProperties = {
   alignItems: 'center',
 }
 
+interface JogButtonProps {
+  axis: string
+  delta: number
+  label: string
+  id?: string
+  color?: string
+  active: Record<string, boolean>
+  onClick: () => void
+}
+
+const JogButton = ({ axis, delta, label, id, color = '#38bdf8', active, onClick }: JogButtonProps) => (
+  <Button
+    variant="contained"
+    onClick={onClick}
+    sx={{
+      width: 58,
+      height: 58,
+      minWidth: 0,
+      display: 'flex',
+      flexDirection: 'column',
+      bgcolor: active[id || ''] ? color : '#1e293b',
+      border: `1px solid ${active[id || ''] ? '#fff' : '#334155'}`,
+      '&:hover': { bgcolor: color + 'cc' },
+      borderRadius: 2,
+      p: 0,
+      color: '#fff',
+      boxShadow: active[id || ''] ? `0 0 15px ${color}` : 'none',
+      transition: 'all 0.1s'
+    }}
+  >
+    <Typography sx={{ fontSize: 24, fontWeight: 'bold', lineHeight: 1 }}>{label.includes('↑') ? '↑' : label.includes('↓') ? '↓' : label.includes('←') ? '←' : label.includes('→') ? '→' : label}</Typography>
+    <Typography sx={{ fontSize: 10, opacity: 0.8, fontWeight: 'bold' }}>{axis}{delta > 0 ? '+' : '-'}</Typography>
+  </Button>
+)
+
 function JogControls() {
   const { model } = useWing()
   const xyuv = model.xyuvMode || ['x', 'y', 'u', 'z']
@@ -96,31 +131,6 @@ function JogControls() {
     if (id) flash(id)
   }
 
-  const JogButton = ({ axis, delta, label, id, color = '#38bdf8' }: any) => (
-    <Button
-      variant="contained"
-      onClick={onButton(axis, delta, id)}
-      sx={{
-        width: 58,
-        height: 58,
-        minWidth: 0,
-        display: 'flex',
-        flexDirection: 'column',
-        bgcolor: active[id] ? color : '#1e293b',
-        border: `1px solid ${active[id] ? '#fff' : '#334155'}`,
-        '&:hover': { bgcolor: color + 'cc' },
-        borderRadius: 2,
-        p: 0,
-        color: '#fff',
-        boxShadow: active[id] ? `0 0 15px ${color}` : 'none',
-        transition: 'all 0.1s'
-      }}
-    >
-      <Typography sx={{ fontSize: 24, fontWeight: 'bold', lineHeight: 1 }}>{label.includes('↑') ? '↑' : label.includes('↓') ? '↓' : label.includes('←') ? '←' : label.includes('→') ? '→' : label}</Typography>
-      <Typography sx={{ fontSize: 10, opacity: 0.8, fontWeight: 'bold' }}>{axis}{delta > 0 ? '+' : '-'}</Typography>
-    </Button>
-  )
-
   return (
     <Box display="flex" flexDirection="column" gap={2}>
       <Box display="flex" justifyContent="space-between" alignItems="center">
@@ -187,13 +197,13 @@ function JogControls() {
           <Typography variant="caption" sx={{ color: '#64748b', mb: 1.5, display: 'block', textAlign: 'center', fontWeight: 'bold' }}>LEFT TOWER (WASD)</Typography>
           <div style={padStyle}>
             <div />
-            <JogButton axis={xyuv[1]} delta={stepSize} label="y↑" id="left-up" color="#38bdf8" />
+            <JogButton axis={xyuv[1]} delta={stepSize} label="y↑" id="left-up" color="#38bdf8" active={active} onClick={onButton(xyuv[1], stepSize, 'left-up')} />
             <div />
-            <JogButton axis={xyuv[0]} delta={-stepSize} label="x←" id="left-left" color="#facc15" />
+            <JogButton axis={xyuv[0]} delta={-stepSize} label="x←" id="left-left" color="#facc15" active={active} onClick={onButton(xyuv[0], -stepSize, 'left-left')} />
             <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#64748b', fontSize: 14, fontWeight: 'bold' }}>XY</Box>
-            <JogButton axis={xyuv[0]} delta={stepSize} label="→x" id="left-right" color="#facc15" />
+            <JogButton axis={xyuv[0]} delta={stepSize} label="→x" id="left-right" color="#facc15" active={active} onClick={onButton(xyuv[0], stepSize, 'left-right')} />
             <div />
-            <JogButton axis={xyuv[1]} delta={-stepSize} label="↓y" id="left-down" color="#38bdf8" />
+            <JogButton axis={xyuv[1]} delta={-stepSize} label="↓y" id="left-down" color="#38bdf8" active={active} onClick={onButton(xyuv[1], -stepSize, 'left-down')} />
             <div />
           </div>
         </Box>
@@ -202,13 +212,13 @@ function JogControls() {
           <Typography variant="caption" sx={{ color: '#64748b', mb: 1.5, display: 'block', textAlign: 'center', fontWeight: 'bold' }}>RIGHT TOWER (Arrows)</Typography>
           <div style={padStyle}>
             <div />
-            <JogButton axis={xyuv[3]} delta={stepSize} label="z↑" id="right-up" color="#38bdf8" />
+            <JogButton axis={xyuv[3]} delta={stepSize} label="z↑" id="right-up" color="#38bdf8" active={active} onClick={onButton(xyuv[3], stepSize, 'right-up')} />
             <div />
-            <JogButton axis={xyuv[2]} delta={-stepSize} label="u←" id="right-left" color="#facc15" />
+            <JogButton axis={xyuv[2]} delta={-stepSize} label="u←" id="right-left" color="#facc15" active={active} onClick={onButton(xyuv[2], -stepSize, 'right-left')} />
             <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#64748b', fontSize: 14, fontWeight: 'bold' }}>UZ</Box>
-            <JogButton axis={xyuv[2]} delta={stepSize} label="→u" id="right-right" color="#facc15" />
+            <JogButton axis={xyuv[2]} delta={stepSize} label="→u" id="right-right" color="#facc15" active={active} onClick={onButton(xyuv[2], stepSize, 'right-right')} />
             <div />
-            <JogButton axis={xyuv[3]} delta={-stepSize} label="↓z" id="right-down" color="#38bdf8" />
+            <JogButton axis={xyuv[3]} delta={-stepSize} label="↓z" id="right-down" color="#38bdf8" active={active} onClick={onButton(xyuv[3], -stepSize, 'right-down')} />
             <div />
           </div>
         </Box>
