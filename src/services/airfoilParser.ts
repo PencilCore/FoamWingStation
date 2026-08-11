@@ -1,27 +1,36 @@
 export interface AirfoilPoint { x: number; y: number; }
 
 /**
- * Loads and parses airfoil data from a .dat file.
- * Assumes the .dat files are located at 'src/assets/airfoils/' 
- * relative to the project root, and the parser is at 'src/services/'.
- * * NOTE: The relative path is fixed to `../assets/airfoils/`.
- * If this still fails, the files must be moved to the `public/` directory
- * and the path changed to `/airfoils/name`.
- * * @param name - The filename of the airfoil (e.g., 'naca0012.dat').
- * @returns A promise resolving to an array of AirfoilPoint objects.
+ * 构建时静态收集 src/assets/AIRFOILS/ 下所有 .DAT 文件。
+ * 用 import.meta.glob 而非变量动态导入（`import(\`../assets/AIRFOILS/${name}?raw\`)`），
+ * 因为 Vite 无法静态分析变量动态导入，dev 下会退化为运行时 URL 请求（404），
+ * 生产构建也无法正确打包这些文件。
+ */
+const airfoilModules = import.meta.glob('../assets/AIRFOILS/*.DAT', {
+  query: '?raw',
+  import: 'default',
+  eager: true,
+}) as Record<string, string>;
+
+/**
+ * 加载并解析翼型 .dat 文件。
+ * 文件位于 'src/assets/AIRFOILS/'。
+ * @param name - 翼型文件名（如 'naca0012.dat'）。
+ * @returns 解析为 AirfoilPoint 数组的 Promise。
  */
 export async function loadAirfoil(name: string): Promise<AirfoilPoint[]> {
   try {
     console.log(`[Airfoil Parser] Loading ${name}...`);
     
-    // 使用相对路径导入（更稳定）
-    const text = await import(`../assets/AIRFOILS/${name}?raw`).then(m => m.default).catch(async (_err) => {
+    // 从构建时收集的模块表中直接取文本（无运行时网络请求）
+    let text = airfoilModules[`../assets/AIRFOILS/${name}`];
+    if (typeof text !== 'string') {
       console.warn(`[Airfoil Parser] Failed to load ${name}, trying fallback to E334.DAT`);
       // 加载失败时降级
-      return import(`../assets/AIRFOILS/E334.DAT?raw`).then(m => m.default);
-    });
+      text = airfoilModules['../assets/AIRFOILS/E334.DAT'];
+    }
     
-    if (!text || typeof text !== 'string') {
+    if (typeof text !== 'string' || text.length === 0) {
       console.error(`[Airfoil Parser] Invalid data for ${name}`);
       return [];
     }

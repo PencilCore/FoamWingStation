@@ -1,5 +1,4 @@
-import React from 'react';
-import { Box, Typography, Button, Divider, Chip, ToggleButtonGroup, ToggleButton } from '@mui/material';
+import { Box, Typography, Divider, Chip, ToggleButtonGroup, ToggleButton } from '@mui/material';
 import { useWing } from '../../hooks/useWing';
 import SliderTextField from './SliderTextField';
 import DirectionalLayout from './DirectionalLayout';
@@ -19,11 +18,11 @@ export default function WingLayoutConfig() {
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-      <Box sx={{ mb: 1, p: 2, bgcolor: 'rgba(56, 189, 248, 0.05)', borderRadius: 2, border: '1px dashed rgba(56, 189, 248, 0.3)' }}>
-        <Typography variant="subtitle2" sx={{ color: '#38bdf8', mb: 1, fontWeight: 'bold' }}>
+      <Box sx={{ mb: 1, p: 2, bgcolor: 'design.skyBg', borderRadius: 2, border: '1px dashed design.skyBorder' }}>
+        <Typography variant="subtitle2" sx={{ color: 'design.sky', mb: 1, fontWeight: 'bold' }}>
           整体切割偏移 (Coordinate Alignment)
         </Typography>
-        <Typography variant="caption" sx={{ color: '#94a3b8', display: 'block', mb: 2 }}>
+        <Typography variant="caption" sx={{ color: 'design.slate', display: 'block', mb: 2 }}>
            设置机翼中心相对于机床坐标原点 (0,0) 的位置。
         </Typography>
 
@@ -90,14 +89,14 @@ export default function WingLayoutConfig() {
 
       {/* 双翼模式排布 */}
       <Box sx={{ mt: 1 }}>
-        <Typography variant="subtitle2" sx={{ color: '#fb923c', mb: 1, fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: 1 }}>
+        <Typography variant="subtitle2" sx={{ color: 'design.orange', mb: 1, fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: 1 }}>
           双翼排布模式 (Both Wings Layout)
-          <Chip label="仅 BOTH 模式有效" size="small" variant="outlined" sx={{ color: '#64748b', borderColor: '#334155', fontSize: '10px', height: 20 }} />
+          <Chip label="仅 BOTH 模式有效" size="small" variant="outlined" sx={{ color: 'design.slateDark', borderColor: 'design.slateDark', fontSize: '10px', height: 20 }} />
         </Typography>
 
         {/* 堆叠方向切换 */}
         <Box sx={{ mb: 2 }}>
-          <Typography variant="caption" sx={{ color: '#94a3b8', display: 'block', mb: 1 }}>
+          <Typography variant="caption" sx={{ color: 'design.slate', display: 'block', mb: 1 }}>
             堆叠方向
           </Typography>
           <ToggleButtonGroup
@@ -107,14 +106,14 @@ export default function WingLayoutConfig() {
             onChange={(_, val) => val && setModel({ ...model, stackingMode: val })}
             sx={{
               '& .MuiToggleButton-root': {
-                color: '#94a3b8',
-                borderColor: '#334155',
+                color: 'design.slate',
+                borderColor: 'design.slateDark',
                 px: 2,
                 textTransform: 'none',
                 '&.Mui-selected': {
-                  color: '#fb923c',
-                  bgcolor: 'rgba(251, 146, 60, 0.1)',
-                  borderColor: 'rgba(251, 146, 60, 0.3)',
+                  color: 'design.orange',
+                  bgcolor: 'design.orangeBg',
+                  borderColor: 'design.orangeBorder',
                 }
               }
             }}

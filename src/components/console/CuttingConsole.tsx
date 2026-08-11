@@ -3,37 +3,47 @@ import GCodeInput from './GCodeInput'
 import JogControls from './JogControls'
 import LogPanel from './LogPanel'
 import PositionDisplay from './PositionDisplay'
+import GcodeSimulator from '../GcodeSimulator'
+import ThreePreview from '../ThreePreview'
 
 interface CuttingConsoleProps {
   gcode: string;
   onGcodeChange: (code: string) => void;
   currentIndex: number;
+  onProgressChange?: (index: number) => void;
 }
 
-export default function CuttingConsole({ gcode, onGcodeChange, currentIndex }: CuttingConsoleProps) {
+export default function CuttingConsole({ gcode, onGcodeChange, currentIndex, onProgressChange }: CuttingConsoleProps) {
   return (
-    <Box display="flex" flexDirection="column" height="100%" bgcolor="#1e293b" color="#f8fafc" overflow="hidden">
-      {/* 顶部：实时状态与位置显示 */}
-      <Box p={2} borderBottom="1px solid #334155" display="flex" flexDirection="column" gap={2}>
-        <PositionDisplay />
-      </Box>
-
-      {/* 中部：包含 Jog 控制和 G-code 输入的区域 */}
-      <Box flex={1} display="flex" overflow="hidden">
-        {/* 左侧：G-code 查看器 */}
-        <Box flex={1.2} p={2} borderRight="1px solid #334155" display="flex" flexDirection="column">
+    <Box display="flex" width="100%" height="100%" minWidth={0} bgcolor="#121212" color="#f5f5f5" overflow="hidden">
+      {/* 左侧：G-code 编辑器 + 控制台日志（上下排列） */}
+      <Box flex={1.15} minWidth={0} display="flex" flexDirection="column" borderRight="1px solid #2e2e2e">
+        <Box flex={1} minHeight={0} p={2} display="flex" flexDirection="column" overflow="hidden">
           <GCodeInput value={gcode} onValueChange={onGcodeChange} currentIndex={currentIndex} />
         </Box>
-
-        {/* 右侧：Jog 手柄和动作按钮 */}
-        <Box flex={1} p={2} display="flex" flexDirection="column" gap={2} bgcolor="#0f172a" sx={{ overflowY: 'auto' }}>
-          <JogControls />
+        <Box height="36%" minHeight={150} borderTop="1px solid #2e2e2e">
+          <LogPanel />
         </Box>
       </Box>
 
-      {/* 底部：控制台日志 */}
-      <Box height="200px" borderTop="1px solid #334155">
-        <LogPanel />
+      {/* 中间：G-code 2D 预览 + 3D 预览（上下排列） */}
+      <Box flex={1} minWidth={0} display="flex" flexDirection="column" p={1} gap={1} borderRight="1px solid #2e2e2e">
+        <Box flex={0.4} minHeight={0}>
+          <GcodeSimulator gcode={gcode} currentIndex={currentIndex} onProgressChange={onProgressChange} />
+        </Box>
+        <Box flex={0.6} minHeight={0}>
+          <ThreePreview />
+        </Box>
+      </Box>
+
+      {/* 右侧：实时位置 + Jog 控制（上下排列），约占 30% */}
+      <Box width="30%" minWidth={320} display="flex" flexDirection="column" overflow="hidden">
+        <Box p={2} borderBottom="1px solid #2e2e2e">
+          <PositionDisplay />
+        </Box>
+        <Box flex={1} minHeight={0} p={2} sx={{ overflowY: 'auto' }}>
+          <JogControls />
+        </Box>
       </Box>
     </Box>
   )

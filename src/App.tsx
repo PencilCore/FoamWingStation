@@ -1,5 +1,7 @@
-import React, { useState, useRef } from 'react';
-import { AppBar, Toolbar, Typography, Box, Tabs, Tab } from '@mui/material';
+import React, { useState } from 'react';
+import { Box, Tabs, Tab, Tooltip } from '@mui/material';
+import DesignServicesIcon from '@mui/icons-material/DesignServices';
+import ContentCutIcon from '@mui/icons-material/ContentCut';
 import { ThemeProvider } from '@mui/material/styles';
 import theme from './theme';
 import LeftDesignTabs from './components/LeftDesignTabs';
@@ -9,67 +11,51 @@ import CuttingConsole from './components/console/CuttingConsole';
 import SerialToolbar from './components/console/SerialToolbar';
 import logo from './assets/FAVICON.PNG';
 import LicenseModal from './components/LicenseModal';
-import GcodeSimulator from './components/GcodeSimulator';
 
 export default function App() {
   const [topTab, setTopTab] = useState(0); // 0 设计  1 切割
-  const [leftWidth, setLeftWidth] = useState(37); // 设计界面建议比例
+  const [designLeftWidth, setDesignLeftWidth] = useState(37); // 设计页左侧比例
   const [licenseOpen, setLicenseOpen] = useState(false);
-  const [logoClicked, setLogoClicked] = useState(false);
-  const [isTransitioning, setIsTransitioning] = useState(false);
-  const dragging = useRef(false);
 
   // 这里的 gcodeState 应该来自切割页面的输入，
   // 暂时先定义一个状态，或者之后通过 Context/Redux 连接
   const [gcode, setGcode] = useState<string>('');
   const [currentGcodeLine, setCurrentGcodeLine] = useState(0);
 
-  // 当切换标签页时，自动调整比例
+  // 当切换标签页时，轨道平移，设计/切割整页无缝滑动
   const handleTabChange = (_: React.SyntheticEvent, newValue: number) => {
     if (newValue === topTab) return;
-    
-    setIsTransitioning(true);
     setTopTab(newValue);
-    
-    if (newValue === 0) {
-      setLeftWidth(37); // 设计界面 37分
-    } else {
-      setLeftWidth(73); // 控制界面 73分
-    }
-
-    // 400ms 后解除模糊（与 CSS 过渡时间对应）
-    setTimeout(() => {
-      setIsTransitioning(false);
-    }, 400);
   };
 
   const handleLogoClick = () => {
-    if (licenseOpen) {
-      setLicenseOpen(false);
-      setLogoClicked(false);
-    } else {
-      setLogoClicked(true);
-      setLicenseOpen(true); // 同步开启
-    }
+    setLicenseOpen((open) => !open);
   };
 
-  // 拖动事件处理
-  const handleMouseDown = (e: React.MouseEvent) => {
-    dragging.current = true;
+  // 设计页导出：填入对应侧 G-Code 并自动切换到切割页
+  const handleExportGcode = (gcode: string) => {
+    setGcode(gcode);
+    setTopTab(1);
+  };
+
+  // 拖动事件处理（泛化：任意页面 + 任意宽度状态）
+  const startDrag = (
+    e: React.MouseEvent,
+    startWidth: number,
+    setWidth: React.Dispatch<React.SetStateAction<number>>
+  ) => {
+    e.preventDefault();
     document.body.style.cursor = 'col-resize';
     const startX = e.clientX;
-    const startWidth = leftWidth;
     const onMouseMove = (moveEvent: MouseEvent) => {
-      if (!dragging.current) return;
       const delta = moveEvent.clientX - startX;
       // 以窗口宽度为基准
       const winWidth = window.innerWidth;
       let newLeftWidth = ((startWidth / 100) * winWidth + delta) / winWidth * 100;
       newLeftWidth = Math.max(20, Math.min(80, newLeftWidth)); // 限制范围
-      setLeftWidth(newLeftWidth);
+      setWidth(newLeftWidth);
     };
     const onMouseUp = () => {
-      dragging.current = false;
       document.body.style.cursor = '';
       window.removeEventListener('mousemove', onMouseMove);
       window.removeEventListener('mouseup', onMouseUp);
@@ -79,137 +65,179 @@ export default function App() {
   };
     return (
       <ThemeProvider theme={theme}>
-        <AppBar position="static" sx={{ height: 64, bgcolor: '#0f172a', zIndex: (theme) => theme.zIndex.modal + 1 }}>
-          <Toolbar>
-            <Box 
-              sx={{ 
-                display: 'flex', 
-                alignItems: 'center', 
-                mr: 2, 
-                cursor: 'pointer',
-                position: 'relative',
-                zIndex: (theme) => theme.zIndex.modal + 2,
-                '& img': {
-                  transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
-                  transform: logoClicked ? 'scale(1.5) translate(16px, 24px)' : 'scale(1) translate(0, 0)',
-                  filter: logoClicked ? 'brightness(1.5)' : 'none',
-                }
-              }} 
-              onClick={handleLogoClick}
-            >
-              <img src={logo} alt="logo" style={{ width: 48, height: 48, marginRight: 8 }} />
-              <Typography variant="h6" sx={{ 
-                fontWeight: 'bold', 
-                letterSpacing: 1, 
-                display: { xs: 'none', md: 'block' },
-                color: '#fff',
-                transition: 'opacity 0.2s ease',
-                opacity: logoClicked ? 0 : 1, 
-              }}>
-              </Typography>
-            </Box>
-
-            <Box sx={{ flex: 1, display: 'flex', justifyContent: 'center' }}>
-              <Tabs value={topTab} onChange={handleTabChange} textColor="inherit" sx={{ minWidth: 200 }}>
-                <Tab label="设计" />
-                <Tab label="切割" />
-              </Tabs>
-            </Box>
-
-            <Box sx={{ ml: 2 }}>
-              <SerialToolbar />
-            </Box>
-          </Toolbar>
-        </AppBar>
-
-        <Box 
-          height="calc(100vh - 64px)" 
-          display="flex" 
-          overflow="hidden" 
-          width="100%"
-          sx={{
-            transition: 'filter 0.2s cubic-bezier(0.2, 0, 0.2, 1)',
-            filter: isTransitioning ? 'blur(5px) brightness(0.9)' : 'none',
-            pointerEvents: isTransitioning ? 'none' : 'auto'
-          }}
-        >
-          {/* 左侧参数区：设计菜单+数据面板 */}
-          <Box width={`${leftWidth}%`} minWidth={300} display="flex" flexDirection="column" bgcolor="#fafafa" p={0}>
-            {topTab === 0 && <LeftDesignTabs />}
-            {/* <Box flex={1} overflow="auto" bgcolor="white" p={2} borderRadius={1}>
-              <ModelDataDisplay />
-            </Box> */}
-                     {topTab === 1 && <CuttingConsole gcode={gcode} onGcodeChange={setGcode} currentIndex={currentGcodeLine} />}
-          </Box>       
-
-          {/* 拉手分隔条 (美化：灰色，垂直居中三个点) */}
+        <Box sx={{ display: 'flex', height: '100vh', bgcolor: '#0a0a0a', overflow: 'hidden' }}>
+          {/* ===== 左侧图标边栏（与 logo 等宽） ===== */}
           <Box
-            sx={{
-              width: '12px',
-              cursor: 'col-resize',
-              background: '#324657ff',
-              zIndex: 10,
-              transition: 'all 0.2s',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              userSelect: 'none',
-            }}
-            onMouseDown={handleMouseDown}
+            width={64}
+            flexShrink={0}
+            bgcolor="#121212"
+            borderRight="1px solid #2e2e2e"
+            display="flex"
+            flexDirection="column"
+            alignItems="center"
+            sx={{ boxShadow: '4px 0 24px rgba(0,0,0,0.45)', zIndex: (theme) => theme.zIndex.modal + 1 }}
           >
-            <Box 
-              className="drag-dots"
-              sx={{ 
-                display: 'flex', 
-                flexDirection: 'column', 
-                gap: '4px',
-                opacity: 0.5,
-                transition: 'opacity 0.2s'
+            {/* Logo（点击打开授权框） */}
+            <Tooltip title="关于 FoamWing Station" placement="right">
+              <Box
+                sx={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  py: 1.5,
+                  cursor: 'pointer',
+                  position: 'relative',
+                  zIndex: (theme) => theme.zIndex.modal + 2,
+                  '& img': { transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)' },
+                  '&:hover img': { filter: 'brightness(1.3)' },
+                }}
+                onClick={handleLogoClick}
+              >
+                <img src={logo} alt="logo" style={{ width: 44, height: 44 }} />
+              </Box>
+            </Tooltip>
+
+            {/* 页面切换 Tabs（纯图标） */}
+            <Tabs
+              orientation="vertical"
+              value={topTab}
+              onChange={handleTabChange}
+              sx={{
+                mt: 1,
+                '& .MuiTabs-indicator': {
+                  left: 0,
+                  width: '3px',
+                  borderRadius: '0 4px 4px 0',
+                  backgroundColor: 'design.blue',
+                },
+                '& .MuiTab-root': {
+                  minWidth: 48,
+                  minHeight: '48px',
+                  borderRadius: '8px',
+                  mb: 0.5,
+                  color: 'design.gray',
+                  '&.Mui-selected': { color: 'design.sky', bgcolor: 'design.skyBg' },
+                  '&:hover': { bgcolor: 'rgba(255, 255, 255, 0.06)', color: 'design.text' },
+                  transition: 'all 0.2s',
+                },
               }}
             >
-              {[1, 2, 3].map((i) => (
-                <Box 
-                  key={i} 
-                  sx={{ 
-                    width: '4px', 
-                    height: '4px', 
-                    borderRadius: '50%', 
-                    bgcolor: '#94a3b8' 
-                  }} 
-                />
-              ))}
+              <Tooltip title="设计" placement="right" arrow>
+                <Tab icon={<DesignServicesIcon fontSize="small" />} />
+              </Tooltip>
+              <Tooltip title="切割" placement="right" arrow>
+                <Tab icon={<ContentCutIcon fontSize="small" />} />
+              </Tooltip>
+            </Tabs>
+
+            {/* 弹性空间：把串口工具栏推到底部 */}
+            <Box sx={{ flexGrow: 1 }} />
+
+            {/* 串口工具栏（图标适配） */}
+            <Box sx={{ py: 1.5, borderTop: '1px solid #2e2e2e', width: '100%', display: 'flex', justifyContent: 'center' }}>
+              <SerialToolbar compact />
             </Box>
           </Box>
 
-          {/* 右侧预览区：2D/3D视图 or G-Code 预览 */}
-          <Box width={`${100 - leftWidth}%`} p={2} display="flex" flexDirection="column" height="100%" minHeight={0}>
-            {topTab === 0 ? (
-              <Box flex={1} display="flex" flexDirection="column" height="100%" minHeight={0}>
-                <Box flex={0.5} minHeight={0} style={{ minHeight:0}}>
-                  <TwoPreview />
+          {/* ===== 内容区 ===== */}
+          <Box flex={1} minWidth={0} sx={{ p: 1.5, boxSizing: 'border-box', height: '100%' }}>
+            <Box
+              overflow="hidden"
+              height="100%"
+              borderRadius={2}
+              sx={{
+                border: '1px solid #2e2e2e',
+                boxShadow: '0 12px 40px rgba(0,0,0,0.6), 0 2px 8px rgba(0,0,0,0.4)',
+              }}
+            >
+              {/* 轨道：设计页与切割页并排，切换时整体平移，无缝连接 */}
+              <Box
+                display="flex"
+                height="100%"
+                width="200%"
+                flexShrink={0}
+                sx={{
+                  transform: topTab === 0 ? 'translateX(0)' : 'translateX(-50%)',
+                  // 强非线性：快速起步 + 平滑减速（惯性滑动感）
+                  transition: 'transform 0.38s cubic-bezier(0.16, 1, 0.3, 1)',
+                }}
+              >
+                {/* ===== 设计页 ===== */}
+                <Box display="flex" width="50%" height="100%" flexShrink={0} overflow="hidden">
+                  {/* 左侧参数区：设计菜单+数据面板 */}
+                  <Box width={`${designLeftWidth}%`} minWidth={280} display="flex" flexDirection="column" bgcolor="#121212">
+                    <LeftDesignTabs onExportGcode={handleExportGcode} />
+                  </Box>
+
+                  {/* 拉手分隔条 */}
+                  <Splitter onMouseDown={(e) => startDrag(e, designLeftWidth, setDesignLeftWidth)} />
+
+                  {/* 右侧预览区：2D/3D视图 */}
+                  <Box flex={1} minWidth={0} p={2} display="flex" flexDirection="column" height="100%" minHeight={0}>
+                    <Box flex={0.5} minHeight={0}>
+                      <TwoPreview />
+                    </Box>
+                    <Box flex={1} minHeight={0}>
+                      <ThreePreview />
+                    </Box>
+                  </Box>
                 </Box>
-                <Box flex={1} minHeight={0} style={{ minHeight:0}}>
-                  <ThreePreview />
+
+                {/* ===== 切割页 ===== */}
+                <Box width="50%" height="100%" flexShrink={0} overflow="hidden">
+                  <CuttingConsole
+                    gcode={gcode}
+                    onGcodeChange={setGcode}
+                    currentIndex={currentGcodeLine}
+                    onProgressChange={setCurrentGcodeLine}
+                  />
                 </Box>
               </Box>
-            ) : (
-              <Box flex={1} display="flex" flexDirection="column" height="100%" minHeight={0} gap={2}>
-                 <Box flex={0.4} minHeight={0}>
-                    <GcodeSimulator 
-                      gcode={gcode} 
-                      currentIndex={currentGcodeLine} 
-                      onProgressChange={setCurrentGcodeLine}
-                    />
-                 </Box>
-                 <Box flex={0.6} minHeight={0}>
-                    <ThreePreview />
-                 </Box>
-              </Box>
-            )}
+            </Box>
           </Box>
-        
         </Box>
         <LicenseModal open={licenseOpen} onClose={() => setLicenseOpen(false)} />
       </ThemeProvider>
+  );
+}
+
+/** 拉手分隔条（灰色，垂直居中三个点） */
+function Splitter({ onMouseDown }: { onMouseDown: (e: React.MouseEvent) => void }) {
+  return (
+    <Box
+      sx={{
+        width: '12px',
+        cursor: 'col-resize',
+        background: '#1e1e1e',
+        borderLeft: '1px solid #2e2e2e',
+        borderRight: '1px solid #2e2e2e',
+        zIndex: 10,
+        transition: 'all 0.2s',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        userSelect: 'none',
+        flexShrink: 0,
+      }}
+      onMouseDown={onMouseDown}
+    >
+      <Box
+        className="drag-dots"
+        sx={{
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '4px',
+          opacity: 0.5,
+          transition: 'opacity 0.2s',
+        }}
+      >
+        {[1, 2, 3].map((i) => (
+          <Box
+            key={i}
+            sx={{ width: '4px', height: '4px', borderRadius: '50%', bgcolor: '#737373' }}
+          />
+        ))}
+      </Box>
+    </Box>
   );
 }

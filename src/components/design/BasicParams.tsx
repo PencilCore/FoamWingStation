@@ -55,9 +55,9 @@ export default function BasicParams() {
       <Alert 
         severity={foamHeightInfo.isAdequate ? 'info' : 'warning'}
         sx={{ 
-          bgcolor: foamHeightInfo.isAdequate ? 'rgba(56, 189, 248, 0.1)' : 'rgba(239, 68, 68, 0.1)',
-          borderColor: foamHeightInfo.isAdequate ? 'rgba(56, 189, 248, 0.3)' : 'rgba(239, 68, 68, 0.3)',
-          color: foamHeightInfo.isAdequate ? '#38bdf8' : '#ef4444'
+          bgcolor: foamHeightInfo.isAdequate ? 'design.skyBg' : 'design.redBg',
+          borderColor: foamHeightInfo.isAdequate ? 'design.skyBorder' : 'design.redBorder',
+          color: foamHeightInfo.isAdequate ? 'design.sky' : 'design.red'
         }}
       >
         <Box>
@@ -67,12 +67,12 @@ export default function BasicParams() {
           <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1, fontSize: '0.875rem' }}>
             <Typography>根部厚度: <strong>{foamHeightInfo.rootMax.toFixed(1)}</strong> mm</Typography>
             <Typography>尖部厚度: <strong>{foamHeightInfo.tipMax.toFixed(1)}</strong> mm</Typography>
-            <Typography sx={{ gridColumn: '1 / -1', color: foamHeightInfo.isAdequate ? '#38bdf8' : '#ef4444', fontWeight: 'bold' }}>
+            <Typography sx={{ gridColumn: '1 / -1', color: foamHeightInfo.isAdequate ? 'design.sky' : 'design.red', fontWeight: 'bold' }}>
               ✓ 最小要求: <strong>{foamHeightInfo.required.toFixed(1)}</strong> mm | 当前设置: <strong>{model.foamThickness.toFixed(1)}</strong> mm
             </Typography>
           </Box>
           {foamHeightInfo.warning && (
-            <Typography variant="caption" sx={{ display: 'block', mt: 1, color: '#ef4444' }}>
+            <Typography variant="caption" sx={{ display: 'block', mt: 1, color: 'design.red' }}>
               {foamHeightInfo.warning}
             </Typography>
           )}
@@ -88,7 +88,7 @@ export default function BasicParams() {
           onChange={handle} 
           fullWidth 
           size="small"
-          sx={{ mb: 3, '& .MuiInputBase-input': { color: '#f8fafc', fontWeight: 'bold' } }} 
+          sx={{ mb: 3, '& .MuiInputBase-input': { color: 'design.text', fontWeight: 'bold' } }} 
         />
         
         <SliderTextField label="全翼展" name="wingSpan" value={model.wingSpan} min={0} max={2500} unit="mm" onChange={handleSlider} />
@@ -97,11 +97,11 @@ export default function BasicParams() {
       </Box>
 
       {/* 2. 变换与单位 */}
-      <Paper sx={{ p: 2, bgcolor: 'rgba(56, 189, 248, 0.05)', border: '1px solid rgba(56, 189, 248, 0.1)', borderRadius: 2 }}>
+      <Paper sx={{ p: 2, bgcolor: 'design.skyBg', border: '1px solid design.skyBorder', borderRadius: 2 }}>
         <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
-          <FormControlLabel control={<Checkbox name="flipZ" checked={!!model.flipZ} onChange={handle} size="small" />} label={<Typography variant="caption" sx={{ color: '#38bdf8' }}>换根尖部 (Flip Z)</Typography>} />
-          <FormControlLabel control={<Checkbox name="mirrorX" checked={!!model.mirrorX} onChange={handle} size="small" />} label={<Typography variant="caption" sx={{ color: '#38bdf8' }}>左右镜像 (Mirror X)</Typography>} />
-          <FormControlLabel control={<Checkbox name="mirrorY" checked={!!model.mirrorY} onChange={handle} size="small" />} label={<Typography variant="caption" sx={{ color: '#38bdf8' }}>上下镜像 (Mirror Y)</Typography>} />
+          <FormControlLabel control={<Checkbox name="flipZ" checked={!!model.flipZ} onChange={handle} size="small" />} label={<Typography variant="caption" sx={{ color: 'design.sky' }}>换根尖部 (Flip Z)</Typography>} />
+          <FormControlLabel control={<Checkbox name="mirrorX" checked={!!model.mirrorX} onChange={handle} size="small" />} label={<Typography variant="caption" sx={{ color: 'design.sky' }}>左右镜像 (Mirror X)</Typography>} />
+          <FormControlLabel control={<Checkbox name="mirrorY" checked={!!model.mirrorY} onChange={handle} size="small" />} label={<Typography variant="caption" sx={{ color: 'design.sky' }}>上下镜像 (Mirror Y)</Typography>} />
         </Box>
         <Divider sx={{ my: 1.5, opacity: 0.1 }} />
         <RadioGroup row name="unit" value={model.unit} onChange={handle}>
@@ -112,7 +112,7 @@ export default function BasicParams() {
 
       {/* 3. 配置存档管理 (原 ConfigManager) */}
       <Box sx={{ mt: 'auto', pt: 2, borderTop: '1px solid rgba(255, 255, 255, 0.1)' }}>
-        <Typography variant="caption" sx={{ color: '#94a3b8', mb: 1.5, display: 'block', fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+        <Typography variant="caption" sx={{ color: 'design.slate', mb: 1.5, display: 'block', fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
           配置存档管理
         </Typography>
         <Stack direction="row" spacing={1} flexWrap="wrap">
@@ -120,7 +120,7 @@ export default function BasicParams() {
             variant="outlined" 
             size="small" 
             onClick={handleExport}
-            sx={{ flex: 1, borderColor: 'rgba(56, 189, 248, 0.4)', color: '#38bdf8', transform: 'scale(0.95)', '&:hover': { borderColor: '#38bdf8', bgcolor: 'rgba(56, 189, 248, 0.1)' } }}
+            sx={{ flex: 1, borderColor: 'design.skyBorder', color: 'design.sky', transform: 'scale(0.95)', '&:hover': { borderColor: 'design.sky', bgcolor: 'design.skyBg' } }}
           >
             导出 JSON
           </Button>
@@ -128,7 +128,7 @@ export default function BasicParams() {
             variant="outlined" 
             size="small" 
             onClick={() => fileInputRef.current?.click()}
-            sx={{ flex: 1, borderColor: 'rgba(250, 204, 21, 0.4)', color: '#facc15', transform: 'scale(0.95)', '&:hover': { borderColor: '#facc15', bgcolor: 'rgba(250, 204, 21, 0.1)' } }}
+            sx={{ flex: 1, borderColor: 'design.yellowBorder', color: 'design.yellow', transform: 'scale(0.95)', '&:hover': { borderColor: 'design.yellow', bgcolor: 'rgba(250, 204, 21, 0.1)' } }}
           >
             导入 JSON
           </Button>
@@ -136,13 +136,13 @@ export default function BasicParams() {
             variant="outlined" 
             size="small" 
             onClick={handleReset}
-            sx={{ flex: 1, borderColor: 'rgba(239, 68, 68, 0.4)', color: '#ef4444', transform: 'scale(0.95)', '&:hover': { borderColor: '#ef4444', bgcolor: 'rgba(239, 68, 68, 0.1)' } }}
+            sx={{ flex: 1, borderColor: 'design.redBorder', color: 'design.red', transform: 'scale(0.95)', '&:hover': { borderColor: 'design.red', bgcolor: 'design.redBg' } }}
           >
             全部重置
           </Button>
           <input type="file" accept=".json" ref={fileInputRef} style={{ display: 'none' }} onChange={handleImport} />
         </Stack>
-        <Typography variant="caption" sx={{ color: '#64748b', mt: 1.5, display: 'block', fontSize: '0.65rem' }}>
+        <Typography variant="caption" sx={{ color: 'design.slateDark', mt: 1.5, display: 'block', fontSize: '0.65rem' }}>
           * 提示：您的设计会自动实时保存在浏览器中项。
         </Typography>
       </Box>

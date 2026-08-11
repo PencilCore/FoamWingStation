@@ -100,15 +100,11 @@ export default function TwoPreview() {
     drawCtx.clearRect(0, 0, w, h);
 
     // enhanced gradient background (matching 3D theme)
-    const bgGradient = drawCtx.createLinearGradient(0, 0, w, h);
-    bgGradient.addColorStop(0, '#0f172a');
-    bgGradient.addColorStop(0.5, '#1a1f35');
-    bgGradient.addColorStop(1, '#0f172a');
-    drawCtx.fillStyle = bgGradient;
+    drawCtx.fillStyle = '#121212';
     drawCtx.fillRect(0, 0, w, h);
 
     // subtle grid background pattern
-    drawCtx.strokeStyle = 'rgba(30, 41, 59, 0.5)';
+    drawCtx.strokeStyle = 'rgba(46, 46, 46, 0.8)';
     drawCtx.lineWidth = 0.5;
     drawCtx.setLineDash([]);
     const gridSize = 50;
@@ -316,7 +312,7 @@ export default function TwoPreview() {
     drawCtx.shadowColor = 'transparent';
     
     // enhance vertical guide lines
-    drawCtx.strokeStyle = 'rgba(100, 116, 139, 0.3)';
+    drawCtx.strokeStyle = 'rgba(64, 64, 64, 0.3)';
     drawCtx.lineWidth = 1;
     drawCtx.setLineDash([]);
     for (let x = marginL; x < w; x += 50) {
@@ -327,7 +323,7 @@ export default function TwoPreview() {
     }
     
     // add horizontal center line
-    drawCtx.strokeStyle = 'rgba(100, 116, 139, 0.2)';
+    drawCtx.strokeStyle = 'rgba(64, 64, 64, 0.2)';
     drawCtx.lineWidth = 1;
     drawCtx.setLineDash([4, 4]);
     drawCtx.beginPath();
@@ -424,10 +420,9 @@ export default function TwoPreview() {
   /* ---------- 8. 渲染 ---------- */
   return (
     <div style={{
-      background: 'linear-gradient(135deg, #0f172a 0%, #1a1f35 50%, #0f172a 100%)',
-      // padding: '16px',
+      background: '#121212',
+      border: '1px solid #2e2e2e',
       borderRadius: 12,
-      boxShadow: '0 8px 32px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.1)',
       width: '100%',
       height: '100%',
       minHeight: 0,
@@ -435,7 +430,6 @@ export default function TwoPreview() {
       flexDirection: 'column',
       justifyContent: 'center',
       overflow: 'hidden',
-      // border: '1px solid rgba(100, 116, 139, 0.2)',
       boxSizing: 'border-box'
     }}>
       <canvas

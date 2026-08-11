@@ -25,7 +25,7 @@ export default function SliderTextField({
 }: SliderTextFieldProps) {
   return (
     <Box sx={{ mb: 2 }}>
-      <Typography variant="caption" sx={{ color: '#94a3b8', mb: 0.5, display: 'block', fontWeight: 600 }}>
+      <Typography variant="caption" sx={{ color: 'design.slate', mb: 0.5, display: 'block', fontWeight: 600 }}>
         {label} {unit && `(${unit})`}
       </Typography>
       <Box display="flex" alignItems="center" gap={3}>
@@ -37,7 +37,7 @@ export default function SliderTextField({
             step={step}
             onChange={(_, v) => onChange(name, v as number)}
             sx={{
-              color: '#38bdf8',
+              color: 'design.sky',
               '& .MuiSlider-thumb': {
                 width: 14,
                 height: 14,

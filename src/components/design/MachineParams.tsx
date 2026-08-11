@@ -18,8 +18,8 @@ export default function MachineParams() {
       <Typography variant="h6" color="primary">机床设置</Typography>
 
       {/* 1. 物理机床参数 */}
-      <Paper sx={{ p: 2, bgcolor: 'rgba(255,255,255,0.05)', border: '1px solid rgba(56, 189, 248, 0.1)' }}>
-        <Typography variant="subtitle1" sx={{ color: '#38bdf8', mb: 2, fontWeight: 'bold' }}>物理机床参数</Typography>
+      <Paper sx={{ p: 2, bgcolor: 'rgba(255,255,255,0.05)', border: '1px solid design.skyBorder' }}>
+        <Typography variant="subtitle1" sx={{ color: 'design.sky', mb: 2, fontWeight: 'bold' }}>物理机床参数</Typography>
         
         <SliderTextField 
           label="龙门架跨度 (Distance)" 
@@ -44,7 +44,7 @@ export default function MachineParams() {
         />
 
         <Box sx={{ mt: 2 }}>
-          <Typography variant="subtitle2" sx={{ mb: 1.5, color: '#94a3b8' }}>轴映射模式 (GRBL 坐标定义)</Typography>
+          <Typography variant="subtitle2" sx={{ mb: 1.5, color: 'design.slate' }}>轴映射模式 (GRBL 坐标定义)</Typography>
           <Box sx={{ display: 'flex', gap: 1 }}>
             {['X', 'Y', 'U', 'Z'].map((label, i) => (
               <TextField
@@ -61,8 +61,8 @@ export default function MachineParams() {
                 placeholder={label}
                 sx={{ 
                   flex: 1,
-                  '& .MuiInputBase-input': { color: '#f1f5f9', fontWeight: 'bold' },
-                  '& .MuiInputLabel-root': { color: '#64748b' }
+                  '& .MuiInputBase-input': { color: 'design.text', fontWeight: 'bold' },
+                  '& .MuiInputLabel-root': { color: 'design.slateDark' }
                 }}
               />
             ))}
@@ -72,7 +72,7 @@ export default function MachineParams() {
 
       {/* 2. 切割工艺全局参数 */}
       <Paper sx={{ p: 2, bgcolor: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.05)' }}>
-        <Typography variant="subtitle1" sx={{ color: '#38bdf8', mb: 2, fontWeight: 'bold' }}>切割工艺参数</Typography>
+        <Typography variant="subtitle1" sx={{ color: 'design.sky', mb: 2, fontWeight: 'bold' }}>切割工艺参数</Typography>
 
         <SliderTextField 
           label="默认进给速度 (Feedrate)" 
@@ -104,7 +104,7 @@ export default function MachineParams() {
           />
           
           <Box sx={{ mt: 1 }}>
-            <Typography variant="subtitle2" sx={{ mb: 1, color: '#94a3b8' }}>切割路径方向</Typography>
+            <Typography variant="subtitle2" sx={{ mb: 1, color: 'design.slate' }}>切割路径方向</Typography>
             <RadioGroup
               row
               value={model.cutDirection}
@@ -119,19 +119,19 @@ export default function MachineParams() {
 
       {/* 3. 机床工作空间限制 (预览校验用) */}
       <Accordion sx={{ bgcolor: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.05)', backgroundImage: 'none' }}>
-        <AccordionSummary expandIcon={<Box sx={{ color: '#64748b' }}>▼</Box>}>
+        <AccordionSummary expandIcon={<Box sx={{ color: 'design.slateDark' }}>▼</Box>}>
           <Typography variant="subtitle2">机床有效行程设置</Typography>
         </AccordionSummary>
         <AccordionDetails sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
           <SliderTextField label="最大行程 X" name="machineWidth" value={model.machineWidth} min={100} max={3000} unit="mm" onChange={handleSlider} />
           <SliderTextField label="最大高度 Y" name="machineHeight" value={model.machineHeight} min={100} max={1500} unit="mm" onChange={handleSlider} />
-          <Typography variant="caption" sx={{ color: '#64748b' }}>* 这些参数仅用于生成 3D 预览中的范围警告。</Typography>
+          <Typography variant="caption" sx={{ color: 'design.slateDark' }}>* 这些参数仅用于生成 3D 预览中的范围警告。</Typography>
         </AccordionDetails>
       </Accordion>
 
       {/* 4. 模型运行统计 (快速查看) */}
-      <Paper sx={{ p: 2, bgcolor: 'rgba(56, 189, 248, 0.05)', border: '1px dashed rgba(56, 189, 248, 0.2)' }}>
-        <Typography variant="caption" sx={{ color: '#38bdf8', display: 'block', mb: 1, fontWeight: 'bold' }}>当前模型统计概览</Typography>
+      <Paper sx={{ p: 2, bgcolor: 'design.skyBg', border: '1px dashed design.skyBorder' }}>
+        <Typography variant="caption" sx={{ color: 'design.sky', display: 'block', mb: 1, fontWeight: 'bold' }}>当前模型统计概览</Typography>
         <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 0.5 }}>
           <Typography variant="caption" color="textSecondary">翼展: {model.wingSpan}mm</Typography>
           <Typography variant="caption" color="textSecondary">龙门跨度: {model.gantryDistance}mm</Typography>

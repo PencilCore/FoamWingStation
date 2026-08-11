@@ -70,7 +70,7 @@ export default function WingRootConfig() {
         onChange={handleSlider} 
       />
 
-      <Box sx={{ mt: 3, pt: 2, borderTop: '1px solid rgba(56, 189, 248, 0.2)' }}>
+      <Box sx={{ mt: 3, pt: 2, borderTop: '1px solid design.skyBorder' }}>
         <Button 
           variant="outlined" 
           size="small"
@@ -83,7 +83,7 @@ export default function WingRootConfig() {
               rootRotation: defaultModel.rootRotation
             }));
           }}
-          sx={{ color: '#38bdf8', borderColor: '#38bdf8', '&:hover': { bgcolor: 'rgba(56, 189, 248, 0.1)' } }}
+          sx={{ color: 'design.sky', borderColor: 'design.sky', '&:hover': { bgcolor: 'design.skyBg' } }}
           fullWidth
         >
           恢复默认值

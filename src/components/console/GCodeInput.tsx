@@ -635,17 +635,17 @@ export default function GCodeInput({ value, onValueChange, currentIndex: externa
     <Box flex={1} display="flex" flexDirection="column" sx={{ height: '100%' }}>
       <Box mb={2} display="flex" justifyContent="space-between" alignItems="center">
         <Box display="flex" alignItems="center" gap={1}>
-          <Typography variant="subtitle2" sx={{ color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 1 }}>G-Code Editor</Typography>
+          <Typography variant="subtitle2" sx={{ color: '#a3a3a3', textTransform: 'uppercase', letterSpacing: 1 }}>G-Code Editor</Typography>
           <FormControlLabel
             control={
               <Checkbox 
                 size="small" 
                 checked={followScroll} 
                 onChange={(e) => setFollowScroll(e.target.checked)}
-                sx={{ color: '#64748b', '&.Mui-checked': { color: '#38bdf8' }, p: 0.5 }}
+                sx={{ color: '#737373', '&.Mui-checked': { color: '#3b82f6' }, p: 0.5 }}
               />
             }
-            label={<Typography variant="caption" sx={{ color: '#94a3b8', userSelect: 'none' }}>跟随滚动</Typography>}
+            label={<Typography variant="caption" sx={{ color: '#a3a3a3', userSelect: 'none' }}>跟随滚动</Typography>}
             sx={{ ml: 1, mr: 0 }}
           />
         </Box>
@@ -656,7 +656,7 @@ export default function GCodeInput({ value, onValueChange, currentIndex: externa
             variant="outlined" 
             color="primary" 
             onClick={handleOpenTools}
-            sx={{ fontWeight: 'bold', fontSize: 12, borderColor: '#334155' }}
+            sx={{ fontWeight: 'bold', fontSize: 12, borderColor: '#2e2e2e' }}
           >
             特殊路径生成 ▼
           </Button>
@@ -664,13 +664,13 @@ export default function GCodeInput({ value, onValueChange, currentIndex: externa
             anchorEl={toolsAnchorEl}
             open={Boolean(toolsAnchorEl)}
             onClose={handleCloseTools}
-            PaperProps={{ sx: { bgcolor: '#1e293b', color: '#f1f5f9', border: '1px solid #334155' } }}
+            PaperProps={{ sx: { bgcolor: '#1e1e1e', color: '#f5f5f5', border: '1px solid #2e2e2e' } }}
           >
             <MenuItem onClick={() => { setSparDialogOpen(true); handleCloseTools(); }}>
               <Typography variant="body2" sx={{ color: '#e879f9', fontWeight: 'bold' }}>碳管打孔</Typography>
             </MenuItem>
             <MenuItem onClick={() => { setCylinderDialogOpen(true); handleCloseTools(); }}>
-              <Typography variant="body2" sx={{ color: '#38bdf8', fontWeight: 'bold' }}>实心圆柱</Typography>
+              <Typography variant="body2" sx={{ color: '#3b82f6', fontWeight: 'bold' }}>实心圆柱</Typography>
             </MenuItem>
             <MenuItem onClick={() => { setSvgDialogOpen(true); handleCloseTools(); }}>
               <Typography variant="body2" sx={{ color: '#4ade80', fontWeight: 'bold' }}>SVG 导入</Typography>
@@ -678,7 +678,7 @@ export default function GCodeInput({ value, onValueChange, currentIndex: externa
           </Menu>
 
           {/* SVG 参数弹窗 */}
-          <Dialog open={svgDialogOpen} onClose={() => setSvgDialogOpen(false)} PaperProps={{ sx: { bgcolor: '#1e293b', color: '#f1f5f9', border: '1px solid #334155', minWidth: 400 } }}>
+          <Dialog open={svgDialogOpen} onClose={() => setSvgDialogOpen(false)} PaperProps={{ sx: { bgcolor: '#1e1e1e', color: '#f5f5f5', border: '1px solid #2e2e2e', minWidth: 400 } }}>
             <DialogTitle sx={{ fontSize: 16, pb: 1 }}>SVG 代码导入</DialogTitle>
             <DialogContent>
               <Box display="flex" flexDirection="column" gap={2} pt={1}>
@@ -690,7 +690,7 @@ export default function GCodeInput({ value, onValueChange, currentIndex: externa
                   value={svgCode}
                   onChange={(e) => setSvgCode(e.target.value)}
                   placeholder="例如: <path d='M10 10 L20 20' />"
-                  sx={{ '& .MuiInputBase-input': { color: '#f1f5f9', fontFamily: 'monospace', fontSize: 12 }, '& .MuiInputLabel-root': { color: '#94a3b8' } }}
+                  sx={{ '& .MuiInputBase-input': { color: '#f5f5f5', fontFamily: 'monospace', fontSize: 12 }, '& .MuiInputLabel-root': { color: '#a3a3a3' } }}
                 />
                 <TextField
                   label="缩放比例"
@@ -699,7 +699,7 @@ export default function GCodeInput({ value, onValueChange, currentIndex: externa
                   fullWidth
                   value={svgScale}
                   onChange={(e) => setSvgScale(Number(e.target.value))}
-                  sx={{ '& .MuiInputBase-input': { color: '#f1f5f9' }, '& .MuiInputLabel-root': { color: '#94a3b8' } }}
+                  sx={{ '& .MuiInputBase-input': { color: '#f5f5f5' }, '& .MuiInputLabel-root': { color: '#a3a3a3' } }}
                 />
                 <TextField
                   label="缩放比例"
@@ -708,7 +708,7 @@ export default function GCodeInput({ value, onValueChange, currentIndex: externa
                   fullWidth
                   value={svgScale}
                   onChange={(e) => setSvgScale(Number(e.target.value))}
-                  sx={{ '& .MuiInputBase-input': { color: '#f1f5f9' }, '& .MuiInputLabel-root': { color: '#94a3b8' } }}
+                  sx={{ '& .MuiInputBase-input': { color: '#f5f5f5' }, '& .MuiInputLabel-root': { color: '#a3a3a3' } }}
                 />
                 <TextField
                   label="垂直切入长度 (mm)"
@@ -716,21 +716,21 @@ export default function GCodeInput({ value, onValueChange, currentIndex: externa
                   fullWidth
                   value={svgEntryY}
                   onChange={(e) => setSvgEntryY(Number(e.target.value))}
-                  sx={{ '& .MuiInputBase-input': { color: '#f1f5f9' }, '& .MuiInputLabel-root': { color: '#94a3b8' } }}
+                  sx={{ '& .MuiInputBase-input': { color: '#f5f5f5' }, '& .MuiInputLabel-root': { color: '#a3a3a3' } }}
                 />
-                <Typography variant="caption" sx={{ color: '#94a3b8' }}>
+                <Typography variant="caption" sx={{ color: '#a3a3a3' }}>
                   提示：解析器支持 M/L/C/Z 指令。程序会先向上切入，完成图形后原路返回。
                 </Typography>
               </Box>
             </DialogContent>
             <DialogActions sx={{ p: 2 }}>
-              <Button onClick={() => setSvgDialogOpen(false)} sx={{ color: '#94a3b8' }}>取消</Button>
+              <Button onClick={() => setSvgDialogOpen(false)} sx={{ color: '#a3a3a3' }}>取消</Button>
               <Button onClick={generateSvgGCode} variant="contained" color="success">解析并生成</Button>
             </DialogActions>
           </Dialog>
 
           {/* 碳管参数动态弹窗 */}
-          <Dialog open={sparDialogOpen} onClose={() => setSparDialogOpen(false)} PaperProps={{ sx: { bgcolor: '#1e293b', color: '#f1f5f9', border: '1px solid #334155', minWidth: 280 } }}>
+          <Dialog open={sparDialogOpen} onClose={() => setSparDialogOpen(false)} PaperProps={{ sx: { bgcolor: '#1e1e1e', color: '#f5f5f5', border: '1px solid #2e2e2e', minWidth: 280 } }}>
             <DialogTitle sx={{ fontSize: 16, pb: 1 }}>碳管打孔参数</DialogTitle>
             <DialogContent>
               <Box display="flex" flexDirection="column" gap={2} pt={1}>
@@ -740,7 +740,7 @@ export default function GCodeInput({ value, onValueChange, currentIndex: externa
                   fullWidth
                   value={sparDiameter}
                   onChange={(e) => setSparDiameter(Number(e.target.value))}
-                  sx={{ '& .MuiInputBase-input': { color: '#f1f5f9' }, '& .MuiInputLabel-root': { color: '#94a3b8' } }}
+                  sx={{ '& .MuiInputBase-input': { color: '#f5f5f5' }, '& .MuiInputLabel-root': { color: '#a3a3a3' } }}
                 />
                 <TextField
                   label="纵向深度 (Y/Z进刀, mm)"
@@ -748,7 +748,7 @@ export default function GCodeInput({ value, onValueChange, currentIndex: externa
                   fullWidth
                   value={sparDepthY}
                   onChange={(e) => setSparDepthY(Number(e.target.value))}
-                  sx={{ '& .MuiInputBase-input': { color: '#f1f5f9' }, '& .MuiInputLabel-root': { color: '#94a3b8' } }}
+                  sx={{ '& .MuiInputBase-input': { color: '#f5f5f5' }, '& .MuiInputLabel-root': { color: '#a3a3a3' } }}
                 />
                 <TextField
                   label="横向偏移 (X/U偏移, mm)"
@@ -756,15 +756,15 @@ export default function GCodeInput({ value, onValueChange, currentIndex: externa
                   fullWidth
                   value={sparDepthX}
                   onChange={(e) => setSparDepthX(Number(e.target.value))}
-                  sx={{ '& .MuiInputBase-input': { color: '#f1f5f9' }, '& .MuiInputLabel-root': { color: '#94a3b8' } }}
+                  sx={{ '& .MuiInputBase-input': { color: '#f5f5f5' }, '& .MuiInputLabel-root': { color: '#a3a3a3' } }}
                 />
                 <FormControl fullWidth>
-                  <InputLabel sx={{ color: '#94a3b8' }}>对齐方向</InputLabel>
+                  <InputLabel sx={{ color: '#a3a3a3' }}>对齐方向</InputLabel>
                   <Select
                     value={sparAlign}
                     label="对齐方向"
                     onChange={(e) => setSparAlign(e.target.value as any)}
-                    sx={{ color: '#f1f5f9', '.MuiOutlinedInput-notchedOutline': { borderColor: '#334155' } }}
+                    sx={{ color: '#f5f5f5', '.MuiOutlinedInput-notchedOutline': { borderColor: '#2e2e2e' } }}
                   >
                     <MenuItem value="center">中间 (当前点为圆心)</MenuItem>
                     <MenuItem value="left">左侧 (当前点为最左边缘)</MenuItem>
@@ -774,13 +774,13 @@ export default function GCodeInput({ value, onValueChange, currentIndex: externa
               </Box>
             </DialogContent>
             <DialogActions sx={{ p: 2 }}>
-              <Button onClick={() => setSparDialogOpen(false)} sx={{ color: '#94a3b8' }}>取消</Button>
+              <Button onClick={() => setSparDialogOpen(false)} sx={{ color: '#a3a3a3' }}>取消</Button>
               <Button onClick={generateSparGCode} variant="contained" color="secondary">生成并关闭</Button>
             </DialogActions>
           </Dialog>
 
           {/* 实心圆柱参数弹窗 */}
-          <Dialog open={cylinderDialogOpen} onClose={() => setCylinderDialogOpen(false)} PaperProps={{ sx: { bgcolor: '#1e293b', color: '#f1f5f9', border: '1px solid #334155', minWidth: 280 } }}>
+          <Dialog open={cylinderDialogOpen} onClose={() => setCylinderDialogOpen(false)} PaperProps={{ sx: { bgcolor: '#1e1e1e', color: '#f5f5f5', border: '1px solid #2e2e2e', minWidth: 280 } }}>
             <DialogTitle sx={{ fontSize: 16, pb: 1 }}>实心圆柱切割参数</DialogTitle>
             <DialogContent>
               <Box display="flex" flexDirection="column" gap={2} pt={1}>
@@ -790,7 +790,7 @@ export default function GCodeInput({ value, onValueChange, currentIndex: externa
                   fullWidth
                   value={cylinderDiameter}
                   onChange={(e) => setCylinderDiameter(Number(e.target.value))}
-                  sx={{ '& .MuiInputBase-input': { color: '#f1f5f9' }, '& .MuiInputLabel-root': { color: '#94a3b8' } }}
+                  sx={{ '& .MuiInputBase-input': { color: '#f5f5f5' }, '& .MuiInputLabel-root': { color: '#a3a3a3' } }}
                 />
                 <TextField
                   label="垂直切入长度 (Y/Z, mm)"
@@ -798,7 +798,7 @@ export default function GCodeInput({ value, onValueChange, currentIndex: externa
                   fullWidth
                   value={cylinderEntryY}
                   onChange={(e) => setCylinderEntryY(Number(e.target.value))}
-                  sx={{ '& .MuiInputBase-input': { color: '#f1f5f9' }, '& .MuiInputLabel-root': { color: '#94a3b8' } }}
+                  sx={{ '& .MuiInputBase-input': { color: '#f5f5f5' }, '& .MuiInputLabel-root': { color: '#a3a3a3' } }}
                 />
                 <TextField
                   label="纵向比例修正 (1.0=原样, <1.0为向内压缩)"
@@ -807,15 +807,15 @@ export default function GCodeInput({ value, onValueChange, currentIndex: externa
                   inputProps={{ step: 0.01 }}
                   value={cylinderAspectRatio}
                   onChange={(e) => setCylinderAspectRatio(Number(e.target.value))}
-                  sx={{ '& .MuiInputBase-input': { color: '#f1f5f9' }, '& .MuiInputLabel-root': { color: '#94a3b8' } }}
+                  sx={{ '& .MuiInputBase-input': { color: '#f5f5f5' }, '& .MuiInputLabel-root': { color: '#a3a3a3' } }}
                 />
-                <Typography variant="caption" sx={{ color: '#94a3b8' }}>
+                <Typography variant="caption" sx={{ color: '#a3a3a3' }}>
                   提示：如果切出来是“垂直长的椭圆”，请尝试将比例减小（如 0.9 或更低）。
                 </Typography>
               </Box>
             </DialogContent>
             <DialogActions sx={{ p: 2 }}>
-              <Button onClick={() => setCylinderDialogOpen(false)} sx={{ color: '#94a3b8' }}>取消</Button>
+              <Button onClick={() => setCylinderDialogOpen(false)} sx={{ color: '#a3a3a3' }}>取消</Button>
               <Button onClick={generateCylinderGCode} variant="contained" color="info">生成并关闭</Button>
             </DialogActions>
           </Dialog>
@@ -824,7 +824,7 @@ export default function GCodeInput({ value, onValueChange, currentIndex: externa
             size="small" 
             variant="outlined" 
             onClick={handleOpenMenu}
-            sx={{ color: '#38bdf8', borderColor: '#334155' }}
+            sx={{ color: '#3b82f6', borderColor: '#2e2e2e' }}
           >
             加载示例
           </Button>
@@ -833,44 +833,44 @@ export default function GCodeInput({ value, onValueChange, currentIndex: externa
             open={Boolean(anchorEl)}
             onClose={handleCloseMenu}
             PaperProps={{
-              sx: { bgcolor: '#1e293b', color: '#f1f5f9', border: '1px solid #334155' }
+              sx: { bgcolor: '#1e1e1e', color: '#f5f5f5', border: '1px solid #2e2e2e' }
             }}
           >
             {EXAMPLES.map((ex, idx) => (
               <MenuItem 
                 key={idx} 
                 onClick={() => handleLoadExample(ex.code)}
-                sx={{ '&:hover': { bgcolor: '#334155' } }}
+                sx={{ '&:hover': { bgcolor: '#2e2e2e' } }}
               >
                 {ex.label}
               </MenuItem>
             ))}
           </Menu>
 
-          <Button size="small" variant="outlined" onClick={handleImportFromDesign} sx={{ color: '#38bdf8', borderColor: '#334155' }}>导入设计</Button>
+          <Button size="small" variant="outlined" onClick={handleImportFromDesign} sx={{ color: '#3b82f6', borderColor: '#2e2e2e' }}>导入设计</Button>
           <Menu
             anchorEl={importAnchorEl}
             open={Boolean(importAnchorEl)}
             onClose={() => setImportAnchorEl(null)}
             PaperProps={{
-              sx: { bgcolor: '#1e293b', color: '#f1f5f9', border: '1px solid #334155' }
+              sx: { bgcolor: '#1e1e1e', color: '#f5f5f5', border: '1px solid #2e2e2e' }
             }}
           >
-            <MenuItem onClick={() => handleSelectImport('left')} sx={{ '&:hover': { bgcolor: '#334155' } }}>左翼 (Left Wing)</MenuItem>
-            <MenuItem onClick={() => handleSelectImport('right')} sx={{ '&:hover': { bgcolor: '#334155' } }}>右翼 (Right Wing)</MenuItem>
+            <MenuItem onClick={() => handleSelectImport('left')} sx={{ '&:hover': { bgcolor: '#2e2e2e' } }}>左翼 (Left Wing)</MenuItem>
+            <MenuItem onClick={() => handleSelectImport('right')} sx={{ '&:hover': { bgcolor: '#2e2e2e' } }}>右翼 (Right Wing)</MenuItem>
             <MenuItem onClick={() => handleSelectImport('both')} sx={{ '&:hover': { bgcolor: 'rgba(251, 146, 60, 0.2)', color: '#fb923c' } }}>双面双翼 (Both Wings)</MenuItem>
           </Menu>
 
           <Button size="small" variant="contained" color="success" onClick={handleStart} disabled={running} sx={{ fontWeight: 'bold' }}>开始</Button>
-          <Button size="small" variant="contained" onClick={handlePause} disabled={!running} sx={{ bgcolor: '#facc15', color: '#000', '&:hover': { bgcolor: '#eab308' } }}>{paused ? '继续' : '暂停'}</Button>
+          <Button size="small" variant="contained" onClick={handlePause} disabled={!running} sx={{ bgcolor: '#f59e0b', color: '#000', '&:hover': { bgcolor: '#eab308' } }}>{paused ? '继续' : '暂停'}</Button>
           <Button size="small" variant="contained" color="error" onClick={handleStop} disabled={!running && !paused}>停止</Button>
         </Box>
       </Box>
 
       {status && (
-        <Box mb={1} p={1} bgcolor="#334155" borderRadius={1} display="flex" justifyContent="space-between" alignItems="center">
-          <Typography variant="caption" sx={{ color: '#38bdf8' }}>{status}</Typography>
-          <Typography variant="caption" sx={{ color: '#94a3b8' }}>{lines.length > 0 ? `Progress: ${Math.min(currentIndex+1, lines.length)} / ${lines.length}` : ''}</Typography>
+        <Box mb={1} p={1} bgcolor="#2e2e2e" borderRadius={1} display="flex" justifyContent="space-between" alignItems="center">
+          <Typography variant="caption" sx={{ color: '#3b82f6' }}>{status}</Typography>
+          <Typography variant="caption" sx={{ color: '#a3a3a3' }}>{lines.length > 0 ? `Progress: ${Math.min(currentIndex+1, lines.length)} / ${lines.length}` : ''}</Typography>
         </Box>
       )}
 
@@ -879,8 +879,8 @@ export default function GCodeInput({ value, onValueChange, currentIndex: externa
         sx={{ 
           flex: 1, 
           width: '100%', 
-          background: '#0f172a', 
-          border: '1px solid #334155', 
+          background: '#121212', 
+          border: '1px solid #2e2e2e', 
           borderRadius: 1,
           overflowY: 'auto',
           position: 'relative',
@@ -897,7 +897,7 @@ export default function GCodeInput({ value, onValueChange, currentIndex: externa
             height: running ? '0px' : '100%',
             visibility: running ? 'hidden' : 'visible',
             background: 'transparent',
-            color: '#38bdf8',
+            color: '#3b82f6',
             fontFamily: 'JetBrains Mono, Consolas, monospace',
             fontSize: 13,
             padding: '12px',
@@ -916,7 +916,7 @@ export default function GCodeInput({ value, onValueChange, currentIndex: externa
               
               return (
                 <Box key={idx} sx={{ 
-                  color: isCurrent ? '#4ade80' : '#38bdf8',
+                  color: isCurrent ? '#4ade80' : '#3b82f6',
                   bgcolor: isCurrent ? 'rgba(74, 222, 128, 0.15)' : 'transparent',
                   px: 0.5,
                   borderRadius: 0.5,

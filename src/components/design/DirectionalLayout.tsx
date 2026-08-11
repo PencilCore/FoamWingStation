@@ -1,5 +1,4 @@
-import React from 'react';
-import { Box, Typography, IconButton, Paper } from '@mui/material';
+import { Box, Typography, IconButton } from '@mui/material';
 import { 
   KeyboardArrowUp, 
   KeyboardArrowDown, 
@@ -27,7 +26,7 @@ export default function DirectionalLayout({
   
   return (
     <Box sx={{ mb: 3 }}>
-      <Typography variant="subtitle2" sx={{ color: '#94a3b8', mb: 1, fontWeight: 'bold' }}>
+      <Typography variant="subtitle2" sx={{ color: 'design.slate', mb: 1, fontWeight: 'bold' }}>
         {label} (X: {xValue}mm, Y: {yValue}mm)
       </Typography>
       
@@ -41,13 +40,13 @@ export default function DirectionalLayout({
           bgcolor: 'rgba(255,255,255,0.03)',
           p: 1,
           borderRadius: 2,
-          border: '1px solid #334155'
+          border: '1px solid design.slateDark'
         }}>
           <div />
           <IconButton 
             size="small" 
             onClick={() => onYChange(yValue + step)}
-            sx={{ color: '#0ea5e9', bgcolor: 'rgba(14, 165, 233, 0.1)' }}
+            sx={{ color: 'design.skyBright', bgcolor: 'design.skyBg' }}
           >
             <KeyboardArrowUp fontSize="small" />
           </IconButton>
@@ -56,17 +55,17 @@ export default function DirectionalLayout({
           <IconButton 
             size="small" 
             onClick={() => onXChange(xValue - step)}
-            sx={{ color: '#0ea5e9', bgcolor: 'rgba(14, 165, 233, 0.1)' }}
+            sx={{ color: 'design.skyBright', bgcolor: 'design.skyBg' }}
           >
             <KeyboardArrowLeft fontSize="small" />
           </IconButton>
-          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#64748b', fontSize: 10, fontWeight: 'bold' }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'design.slateDark', fontSize: 10, fontWeight: 'bold' }}>
             MOVE
           </Box>
           <IconButton 
             size="small" 
             onClick={() => onXChange(xValue + step)}
-            sx={{ color: '#0ea5e9', bgcolor: 'rgba(14, 165, 233, 0.1)' }}
+            sx={{ color: 'design.skyBright', bgcolor: 'design.skyBg' }}
           >
             <KeyboardArrowRight fontSize="small" />
           </IconButton>
@@ -75,7 +74,7 @@ export default function DirectionalLayout({
           <IconButton 
             size="small" 
             onClick={() => onYChange(yValue - step)}
-            sx={{ color: '#0ea5e9', bgcolor: 'rgba(14, 165, 233, 0.1)' }}
+            sx={{ color: 'design.skyBright', bgcolor: 'design.skyBg' }}
           >
             <KeyboardArrowDown fontSize="small" />
           </IconButton>
@@ -84,7 +83,7 @@ export default function DirectionalLayout({
 
         {/* 输入微调区可以根据需要添加，这里暂时只用方向键 */}
         <Box sx={{ flex: 1 }}>
-           <Typography variant="caption" sx={{ color: '#64748b', display: 'block' }}>
+           <Typography variant="caption" sx={{ color: 'design.slateDark', display: 'block' }}>
              使用方向键进行 {step}mm 步进微调。
            </Typography>
         </Box>

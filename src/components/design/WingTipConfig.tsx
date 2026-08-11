@@ -70,7 +70,7 @@ export default function WingTipConfig() {
         onChange={handleSlider} 
       />
 
-      <Box sx={{ mt: 3, pt: 2, borderTop: '1px solid rgba(251, 146, 60, 0.2)' }}>
+      <Box sx={{ mt: 3, pt: 2, borderTop: '1px solid design.orangeBorder' }}>
         <Button 
           variant="outlined" 
           size="small"
@@ -83,7 +83,7 @@ export default function WingTipConfig() {
               tipRotation: defaultModel.tipRotation
             }));
           }}
-          sx={{ color: '#fb923c', borderColor: '#fb923c', '&:hover': { bgcolor: 'rgba(251, 146, 60, 0.1)' } }}
+          sx={{ color: 'design.orange', borderColor: 'design.orange', '&:hover': { bgcolor: 'design.orangeBg' } }}
           fullWidth
         >
           恢复默认值

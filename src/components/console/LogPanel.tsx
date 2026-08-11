@@ -63,15 +63,15 @@ export default function LogPanel() {
   }
 
   return (
-    <Box flex={1} display="flex" flexDirection="column" sx={{ height: '100%', bgcolor: '#0f172a' }}>
-      <Box p={1} display="flex" justifyContent="space-between" alignItems="center" bgcolor="#1e293b" borderBottom="1px solid #334155">
+    <Box flex={1} display="flex" flexDirection="column" sx={{ height: '100%', bgcolor: '#121212' }}>
+      <Box p={2} display="flex" justifyContent="space-between" alignItems="center" bgcolor="#1e1e1e" borderBottom="1px solid #2e2e2e">
         <Box display="flex" alignItems="center" gap={1} sx={{ flex: 1, overflow: 'hidden', height: 24 }}>
-          <Typography variant="caption" sx={{ color: '#94a3b8', fontWeight: 'bold', textTransform: 'uppercase', flexShrink: 0 }}>Console Output</Typography>
+          <Typography variant="caption" sx={{ color: '#a3a3a3', fontWeight: 'bold', textTransform: 'uppercase', flexShrink: 0 }}>Console Output</Typography>
           
           <Box sx={{ flex: 1, overflow: 'hidden', display: 'flex', alignItems: 'center' }}>
             {lastStatus && (
               <Typography variant="caption" sx={{ 
-                color: '#38bdf8', 
+                color: '#3b82f6', 
                 fontFamily: 'JetBrains Mono, Consolas, monospace',
                 fontSize: '0.7rem',
                 ml: 1.5,
@@ -99,15 +99,15 @@ export default function LogPanel() {
                 size="small" 
                 checked={autoScroll} 
                 onChange={(e) => setAutoScroll(e.target.checked)}
-                sx={{ color: '#64748b', '&.Mui-checked': { color: '#38bdf8' }, p: 0.5 }}
+                sx={{ color: '#737373', '&.Mui-checked': { color: '#3b82f6' }, p: 0.5 }}
               />
             }
-            label={<Typography variant="caption" sx={{ color: '#94a3b8', fontSize: '0.7rem' }}>自动滚动</Typography>}
+            label={<Typography variant="caption" sx={{ color: '#a3a3a3', fontSize: '0.7rem' }}>自动滚动</Typography>}
             sx={{ ml: 1, my: -1, flexShrink: 0 }}
           />
 
           <Box display="flex" alignItems="center" gap={1} ml={2}>
-            <Typography variant="caption" sx={{ color: '#64748b' }}>频率:</Typography>
+            <Typography variant="caption" sx={{ color: '#737373' }}>频率:</Typography>
             <Select
               size="small"
               value={pollMs}
@@ -119,11 +119,11 @@ export default function LogPanel() {
               sx={{ 
                 height: 20, 
                 fontSize: '0.7rem', 
-                color: '#94a3b8',
+                color: '#a3a3a3',
                 '.MuiOutlinedInput-notchedOutline': { borderColor: 'transparent' },
-                '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: '#334155' },
-                '&.Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: '#334155' },
-                '.MuiSvgIcon-root': { fontSize: '1rem', color: '#64748b' }
+                '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: '#2e2e2e' },
+                '&.Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: '#2e2e2e' },
+                '.MuiSvgIcon-root': { fontSize: '1rem', color: '#737373' }
               }}
             >
               {[100, 200, 500, 1000, 2000].map(ms => (
@@ -132,18 +132,18 @@ export default function LogPanel() {
             </Select>
           </Box>
         </Box>
-        <Typography variant="caption" sx={{ color: '#64748b', flexShrink: 0 }}>9600, 8, N, 1</Typography>
+        <Typography variant="caption" sx={{ color: '#737373', flexShrink: 0 }}>9600, 8, N, 1</Typography>
       </Box>
 
       <Box ref={containerRef} flex={1} sx={{ color: '#10b981', fontFamily: 'JetBrains Mono, Consolas, monospace', fontSize: 12, p: 1, overflowY: 'auto' }}>
         {logs.length === 0 ? (
-          <Typography variant="body2" sx={{ color: '#475569', fontStyle: 'italic' }}>Waiting for data...</Typography>
+          <Typography variant="body2" sx={{ color: '#525252', fontStyle: 'italic' }}>Waiting for data...</Typography>
         ) : (
           logs.map((l, i) => (
             <div key={i} style={{ 
               whiteSpace: 'pre-wrap', 
               marginBottom: '2px',
-              color: l.startsWith('>') ? '#38bdf8' : (l.startsWith('*') ? '#facc15' : '#10b981')
+              color: l.startsWith('>') ? '#3b82f6' : (l.startsWith('*') ? '#f59e0b' : '#10b981')
             }}>
               {l}
             </div>
@@ -151,7 +151,7 @@ export default function LogPanel() {
         )}
       </Box>
 
-      <Box p={1} display="flex" gap={1} alignItems="center" bgcolor="#1e293b" borderTop="1px solid #334155">
+      <Box p={2} display="flex" gap={1} alignItems="center" bgcolor="#1e1e1e" borderTop="1px solid #2e2e2e">
         <TextField 
           size="small" 
           placeholder="Command..." 
@@ -160,9 +160,9 @@ export default function LogPanel() {
           fullWidth 
           onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleSend() } }}
           sx={{ 
-            '& .MuiInputBase-input': { color: '#f8fafc', fontSize: 13, py: 0.5 },
-            '& .MuiOutlinedInput-notchedOutline': { borderColor: '#334155' },
-            '& .MuiOutlinedInput-root:hover .MuiOutlinedInput-notchedOutline': { borderColor: '#475569' },
+            '& .MuiInputBase-input': { color: '#f5f5f5', fontSize: 13, py: 0.5 },
+            '& .MuiOutlinedInput-notchedOutline': { borderColor: '#2e2e2e' },
+            '& .MuiOutlinedInput-root:hover .MuiOutlinedInput-notchedOutline': { borderColor: '#525252' },
           }}
         />
         <Button variant="contained" size="small" onClick={handleSend} sx={{ minWidth: 60 }}>Send</Button>

@@ -376,7 +376,7 @@ export default function ThreePreview() {
   }, [left, right, rightOffset, viewMode, model.interWingOffsetX, model.interWingOffsetY, model.stackingMode, foamChord, wingSpan, foamThickness])
 
 	return (
-    <div style={{ width: '100%', height: '100%', position: 'relative', background: 'radial-gradient(ellipse at center, #1e293b 0%, #0f172a 70%)', minHeight: 0, borderRadius: 12, overflow: 'hidden', boxShadow: 'inset 0 0 60px rgba(0,0,0,0.5)' }}>
+    <div style={{ width: '100%', height: '100%', position: 'relative', background: '#121212', border: '1px solid #2e2e2e', minHeight: 0, borderRadius: 12, overflow: 'hidden' }}>
       <Canvas
         dpr={[1, 2]}
         camera={{
@@ -405,10 +405,8 @@ export default function ThreePreview() {
         
         <Grid 
           args={[3000, 60]} 
-          cellColor="#334155" 
-          sectionColor="#1e293b"
-          sectionSize={10}
-          fadeDistance={2000}
+          cellColor="#404040" 
+          sectionColor="#2e2e2e"
           position={[centerTarget.x, -2, centerTarget.z]} 
         />
 

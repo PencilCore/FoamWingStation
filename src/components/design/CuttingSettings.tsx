@@ -1,6 +1,5 @@
 import { Box, Typography, Button } from '@mui/material';
 import { useWing } from '../../hooks/useWing';
-import { defaultModel } from '../../types/wing.model';
 import SliderTextField from './SliderTextField';
 
 export default function CuttingSettings() {
@@ -16,8 +15,8 @@ export default function CuttingSettings() {
         切割运动设置
       </Typography>
 
-      <Box sx={{ mt: 1, p: 2, bgcolor: 'rgba(56, 189, 248, 0.05)', borderRadius: 2, border: '1px dashed rgba(56, 189, 248, 0.3)' }}>
-        <Typography variant="subtitle2" sx={{ color: '#38bdf8', mb: 1, fontWeight: 'bold' }}>
+      <Box sx={{ mt: 1, p: 2, bgcolor: 'design.skyBg', borderRadius: 2, border: '1px dashed design.skyBorder' }}>
+        <Typography variant="subtitle2" sx={{ color: 'design.sky', mb: 1, fontWeight: 'bold' }}>
           翼型安全边距 (起始位置)
         </Typography>
         <SliderTextField
@@ -29,40 +28,32 @@ export default function CuttingSettings() {
           unit="mm"
           onChange={handleSlider}
         />
-        <Typography variant="caption" sx={{ color: '#94a3b8', display: 'block', mt: 0.5 }}>
+        <Typography variant="caption" sx={{ color: 'design.slate', display: 'block', mt: 0.5 }}>
           控制切割起始点相对于当前逻辑零点的偏移 (默认 10mm)。
         </Typography>
       </Box>
 
-      <Typography variant="subtitle2" sx={{ mt: 2, color: '#4ade80' }}>
-        运动控制 (Motion Settings)
-      </Typography>
+      <Box sx={{ mt: 1, p: 2, borderRadius: 2, border: '1px solid rgba(74, 222, 128, 0.25)', bgcolor: 'rgba(74, 222, 128, 0.05)' }}>
+        <Typography variant="subtitle2" sx={{ color: 'design.green', mb: 1, fontWeight: 'bold' }}>
+          切割速度 (Feedrate)
+        </Typography>
+        <Typography variant="caption" sx={{ color: 'design.slate', display: 'block' }}>
+          当前进给速度 <strong style={{ color: 'design.green' }}>{model.feedrate || 300} mm/min</strong>。
+          修改请前往「机床设置 → 切割工艺参数」。
+        </Typography>
+      </Box>
 
-      <SliderTextField
-        label="切割速度 (Feedrate)"
-        name="feedrate"
-        value={model.feedrate || 300}
-        min={10}
-        max={1500}
-        unit="mm/min"
-        onChange={handleSlider}
-      />
-
-      <Box sx={{ mt: 3, pt: 2, borderTop: '1px solid rgba(251, 146, 60, 0.2)' }}>
-        <Button 
-          variant="outlined" 
+      <Box sx={{ mt: 3, pt: 2, borderTop: '1px solid design.orangeBorder' }}>
+        <Button
+          variant="outlined"
           size="small"
           onClick={() => {
-            setModel(prev => ({
-              ...prev,
-              pathMargin: 10,
-              feedrate: 300
-            }));
+            setModel(prev => ({ ...prev, pathMargin: 10 }));
           }}
-          sx={{ color: '#fb923c', borderColor: '#fb923c', '&:hover': { bgcolor: 'rgba(251, 146, 60, 0.1)' } }}
+          sx={{ color: 'design.orange', borderColor: 'design.orange', '&:hover': { bgcolor: 'design.orangeBg' } }}
           fullWidth
         >
-          恢复运动默认值
+          恢复安全边距默认值
         </Button>
       </Box>
     </Box>
