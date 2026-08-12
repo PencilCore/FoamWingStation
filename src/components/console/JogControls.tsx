@@ -64,6 +64,50 @@ function JogControls() {
     setAnchorEl(null);
   };
 
+  const [toolMenuAnchorEl, setToolMenuAnchorEl] = useState<null | HTMLElement>(null)
+  const [isHoming, setIsHoming] = useState(false)
+  const [homingAxes, setHomingAxes] = useState<string[]>([])
+
+  const startHoming = async (axes: string[]) => {
+    setIsHoming(true)
+    setHomingAxes(axes)
+    const axisStr = axes.length === 4 ? 'ALL' : axes.join('')
+    await serialService.startHardHoming(axisStr, 1000)
+  }
+
+  const handleRetractionHoming = async () => {
+    await serialService.sendRaw(`G1 X0 Y0 U0 Z0 F1600\n`)
+  }
+
+  const handleAxisComplete = async (axis: string) => {
+    const remaining = homingAxes.filter(a => a !== axis)
+    setHomingAxes(remaining)
+    if (remaining.length === 0) {
+      await serialService.stopAndSetZero()
+      setIsHoming(false)
+    } else {
+      await serialService.stopSpecificAxisAndContinue(axis, remaining)
+    }
+  }
+
+  const handleSetZero = () => {
+    serialService.sendRaw(`$10=0\n`)
+    setTimeout(() => {
+      serialService.sendRaw(`G10 L2 P1 X0 Y0 Z0 U0\n`)
+      setTimeout(() => {
+        serialService.sendRaw(`G92 X0 Y0 Z0 U0\n`)
+      }, 50)
+    }, 50)
+  }
+
+  const handleToolMenuClick = (event: React.MouseEvent<HTMLButtonElement>) => {
+    setToolMenuAnchorEl(event.currentTarget)
+  }
+  const handleToolMenuClose = (cmd?: string) => {
+    setToolMenuAnchorEl(null)
+    if (cmd) serialService.sendRaw(cmd + '\n')
+  }
+
   useEffect(() => {
     // Notify other components about manual speed change
     window.dispatchEvent(new CustomEvent('manual-speed-change', { detail: manualSpeed }))
@@ -134,7 +178,7 @@ function JogControls() {
   return (
     <Box display="flex" flexDirection="column" gap={2}>
       <Box display="flex" justifyContent="space-between" alignItems="center">
-        <Typography variant="subtitle2" sx={{ color: '#a3a3a3', textTransform: 'uppercase', letterSpacing: 1 }}>Jog Control</Typography>
+        
         <Box display="flex" gap={0.5} alignItems="center">
           {/* 手动速度下拉按钮 */}
           <Button
@@ -222,6 +266,58 @@ function JogControls() {
             <div />
           </div>
         </Box>
+      </Box>
+
+      {/* 解锁/归零等操作按钮 */}
+      <Box display="flex" flexWrap="wrap" gap={1} p={1.5} sx={{ bgcolor: '#0f172a', borderRadius: 1, border: '1px solid #334155' }}>
+        <Button size="small" variant="contained" color="warning" onClick={() => serialService.sendRaw('$X\n')} sx={{ fontSize: 11 }}>
+          解锁
+        </Button>
+        <Button size="small" variant="contained" color="primary" onClick={handleSetZero} sx={{ fontSize: 11 }}>
+          全轴归零
+        </Button>
+        <Box display="flex" sx={{ 
+          borderRadius: 1, 
+          overflow: 'hidden',
+          border: isHoming ? '1px solid rgba(34, 197, 94, 0.5)' : '1px solid rgba(239, 68, 68, 0.4)',
+          bgcolor: isHoming ? 'rgba(34, 197, 94, 0.1)' : 'rgba(239, 68, 68, 0.1)',
+        }}>
+          {!isHoming ? (
+            <Box display="flex">
+              <Button size="small" variant="text" color="error" onClick={() => startHoming(['X', 'Y', 'U', 'Z'])} sx={{ fontWeight: 'bold', fontSize: 11, px: 1, '&:hover': { bgcolor: 'rgba(239, 68, 68, 0.2)' } }}>
+                暴力归零
+              </Button>
+              <Box sx={{ width: '1px', bgcolor: 'rgba(239, 68, 68, 0.2)', my: 0.5 }} />
+              <Button size="small" variant="text" sx={{ color: '#fbbf24', fontWeight: 'bold', fontSize: 11, px: 1, '&:hover': { bgcolor: 'rgba(251, 191, 36, 0.1)' } }} onClick={handleRetractionHoming}>
+                撤回归零
+              </Button>
+            </Box>
+          ) : (
+            <Button size="small" variant="text" color="success" onClick={async () => { await serialService.stopAndSetZero(); setIsHoming(false) }} sx={{ fontWeight: 'bold', fontSize: 11, px: 1.5, '&:hover': { bgcolor: 'rgba(34, 197, 94, 0.2)' } }}>
+              全部停止
+            </Button>
+          )}
+          <Box sx={{ width: '1px', bgcolor: isHoming ? 'rgba(34, 197, 94, 0.3)' : 'rgba(239, 68, 68, 0.3)', my: 0.5 }} />
+          {['X', 'Y', 'U', 'Z'].map(ax => {
+            const isSearching = homingAxes.includes(ax);
+            return (
+              <Button key={ax} size="small" variant="text" onClick={() => { if (!isHoming) { startHoming([ax]) } else if (isSearching) { handleAxisComplete(ax) } }} sx={{ minWidth: 28, p: 0, fontSize: 11, fontWeight: isSearching ? 'bold' : 'normal', color: isHoming ? (isSearching ? '#f87171' : '#4ade80') : '#f87171', bgcolor: isHoming && !isSearching ? 'rgba(34, 197, 94, 0.2)' : 'transparent', '&:hover': { bgcolor: isHoming && !isSearching ? 'rgba(34, 197, 94, 0.3)' : 'rgba(239, 68, 68, 0.2)' } }}>
+                {ax}
+              </Button>
+            )
+          })}
+        </Box>
+        <Button size="small" variant="outlined" sx={{ color: '#38bdf8', borderColor: '#38bdf8', fontSize: 11 }} onClick={handleToolMenuClick}>
+          更多工具
+        </Button>
+        <Menu anchorEl={toolMenuAnchorEl} open={Boolean(toolMenuAnchorEl)} onClose={() => handleToolMenuClose()}>
+          <MenuItem onClick={() => handleToolMenuClose(`G1 X0 Y0 Z0 U0 F200`)} sx={{ fontSize: 12 }}>回到零点 (Move to 0)</MenuItem>
+          <MenuItem onClick={() => handleToolMenuClose('$H')} sx={{ fontSize: 12 }}>硬件回零 ($H)</MenuItem>
+          <MenuItem onClick={() => handleToolMenuClose('$#')} sx={{ fontSize: 12 }}>查看偏置 ($#)</MenuItem>
+          <MenuItem onClick={() => handleToolMenuClose('$G')} sx={{ fontSize: 12 }}>查看状态 ($G)</MenuItem>
+          <MenuItem onClick={() => handleToolMenuClose('M3 S1000')} sx={{ fontSize: 12 }}>开启热丝 (M3)</MenuItem>
+          <MenuItem onClick={() => handleToolMenuClose('M5')} sx={{ fontSize: 12 }}>关闭热丝 (M5)</MenuItem>
+        </Menu>
       </Box>
     </Box>
   )

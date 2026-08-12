@@ -26,6 +26,8 @@ export interface DesignColors {
   redLighter: string;
   /** 黄 #facc15（导入按钮） */
   yellow: string;
+  /** 紫 #a855f7（NACA生成器高亮） */
+  purple: string;
   /** 石板灰 #94a3b8（次要文本/标签） */
   slate: string;
   /** 深石板 #64748b（辅助文本/占位） */
@@ -100,6 +102,7 @@ const theme = createTheme({
       redLight: '#f87171',
       redLighter: '#fca5a5',
       yellow: '#facc15',
+      purple: '#a855f7',
       slate: '#94a3b8',
       slateDark: '#64748b',
       gray: '#a3a3a3',
@@ -117,7 +120,11 @@ const theme = createTheme({
     },
   },
   typography: {
-    fontFamily: '"Inter", "system-ui", "-apple-system", sans-serif',
+    fontFamily: '"Inter", "system-ui", "-apple-system", "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif',
+    htmlFontSize: 16,
+    allVariants: {
+      fontFamily: '"Inter", "system-ui", "-apple-system", "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif',
+    },
     h6: {
       fontWeight: 600,
       letterSpacing: '0.025em',

@@ -1,32 +1,23 @@
 import React, { useMemo, useState, useEffect, useRef, useCallback } from 'react';
-import { Box, Typography, Button, ButtonGroup, Tooltip, IconButton } from '@mui/material';
-import PlayArrowIcon from '@mui/icons-material/PlayArrow';
-import PauseIcon from '@mui/icons-material/Pause';
-import ReplayIcon from '@mui/icons-material/Replay';
+import { Box, Typography, Button, ButtonGroup } from '@mui/material';
 
 interface GCodePreviewProps {
   gcode: string;
   currentIndex?: number;
-  onProgressChange?: (index: number) => void;
 }
 
-export default function GcodeSimulator({ gcode, currentIndex = 0, onProgressChange }: GCodePreviewProps) {
+export default function GcodeSimulator({ gcode, currentIndex = 0 }: GCodePreviewProps) {
   const [viewMode, setViewMode] = useState<'XY' | 'UZ'>('XY');
-  const [isPlaying, setIsPlaying] = useState(false);
   
-  // 完全移除 internalTime state，避免 60fps 的 React Render
-  const internalTimeRef = useRef(0);
-  
-  const startTimeRef = useRef<number>(0);
-  const pausedTimeRef = useRef<number>(0);
+  // 完全移除内部播放状态：播放进度统一由 3D 视图（Gcode3DPreview）驱动，
+  // 这里仅通过 window 'gcode-progress' 事件 + 外部 currentIndex 同步绘制
+  const currentDistRef = useRef(0);
 
   // Canvas 引用
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const progressTextRef = useRef<HTMLSpanElement>(null);
-  const sliderRef = useRef<HTMLInputElement>(null);
 
   // 1. 解析 G-code 路径
-  const { paths, bounds, totalLines } = useMemo(() => {
+  const { paths, bounds, totalLines, cumDists, totalDists } = useMemo(() => {
     const rawLines = gcode.split('\n');
     const xyPath: [number, number][] = [];
     const uzPath: [number, number][] = [];
@@ -72,56 +63,40 @@ export default function GcodeSimulator({ gcode, currentIndex = 0, onProgressChan
       }
     });
 
+    // 计算累计路程（用于路程/秒播放）
+    const cumXY = [0];
+    for (let i = 1; i < xyPath.length; i++) {
+      const dx = xyPath[i][0] - xyPath[i-1][0];
+      const dy = xyPath[i][1] - xyPath[i-1][1];
+      cumXY.push(cumXY[i-1] + Math.sqrt(dx*dx + dy*dy));
+    }
+    const cumUZ = [0];
+    for (let i = 1; i < uzPath.length; i++) {
+      const du = uzPath[i][0] - uzPath[i-1][0];
+      const dz = uzPath[i][1] - uzPath[i-1][1];
+      cumUZ.push(cumUZ[i-1] + Math.sqrt(du*du + dz*dz));
+    }
+
     return {
       paths: { XY: xyPath, UZ: uzPath },
       bounds: { 
         XY: { minX, maxX, minY, maxY }, 
         UZ: { minX: minU, maxX: maxU, minY: minZ, maxY: maxZ } 
       },
-      totalLines: rawLines.length
+      totalLines: rawLines.length,
+      cumDists: { XY: cumXY, UZ: cumUZ },
+      totalDists: { 
+        XY: cumXY.length > 0 ? cumXY[cumXY.length - 1] : 0,
+        UZ: cumUZ.length > 0 ? cumUZ[cumUZ.length - 1] : 0
+      }
     };
   }, [gcode]);
 
-  // 使用 useRef 缓存 onProgressChange，避免在 useEffect 中引起闭包陷阱或循环
-  const onProgressChangeRef = React.useRef(onProgressChange);
+  // 使用 useRef 缓存 gcode，避免在 useEffect 中引起闭包陷阱
+  const gcodeRef = React.useRef(gcode);
   React.useEffect(() => {
-    onProgressChangeRef.current = onProgressChange;
-  }, [onProgressChange]);
-
-  const togglePlay = () => {
-    if (!isPlaying) {
-      // 从暂停恢复
-      startTimeRef.current = performance.now() - (internalTimeRef.current / 30 * 1000);
-      setIsPlaying(true);
-    } else {
-      // 暂停
-      setIsPlaying(false);
-      // 只有在暂停时才把内部状态同步到外部的左侧进度，避免动画期间的高频更新卡顿
-      onProgressChangeRef.current?.(Math.floor(internalTimeRef.current));
-    }
-  };
-
-  const handleRestart = () => {
-    internalTimeRef.current = 0;
-    updateCanvasNodes(0);
-    startTimeRef.current = performance.now();
-    setIsPlaying(true);
-    onProgressChangeRef.current?.(0);
-  };
-
-  // 如果外部 currentIndex 改变且不是由于内部驱动（如用户拖动 Slider，或是从第一行切刀）
-  useEffect(() => {
-    if (!isPlaying) {
-      const internalIdx = Math.floor(internalTimeRef.current);
-      if (Math.abs(currentIndex - internalIdx) > 1) {
-        internalTimeRef.current = currentIndex;
-        updateCanvasNodes(currentIndex);
-        if (sliderRef.current) {
-          sliderRef.current.value = String(currentIndex);
-        }
-      }
-    }
-  }, [currentIndex, isPlaying]); // 这里暂时去掉 updateCanvasNodes 依赖，避免由于定义顺序引起的错误，使用内部闭包执行即可
+    gcodeRef.current = gcode;
+  }, [gcode]);
 
   const padding = 30;
   const svgWidth = 400;
@@ -129,10 +104,12 @@ export default function GcodeSimulator({ gcode, currentIndex = 0, onProgressChan
 
   const currentPath = viewMode === 'XY' ? paths.XY : paths.UZ;
   const currentBounds = viewMode === 'XY' ? bounds.XY : bounds.UZ;
-  
+  const currentCumDist = viewMode === 'XY' ? cumDists.XY : cumDists.UZ;
+  const currentTotalDist = viewMode === 'XY' ? totalDists.XY : totalDists.UZ;
+
   const contentWidth = Math.max(1, currentBounds.maxX - currentBounds.minX);
   const contentHeight = Math.max(1, currentBounds.maxY - currentBounds.minY);
-  
+
   const availableWidth = svgWidth - 2 * padding;
   const availableHeight = svgHeight - 2 * padding;
   const scale = Math.min(availableWidth / contentWidth, availableHeight / contentHeight);
@@ -143,29 +120,28 @@ export default function GcodeSimulator({ gcode, currentIndex = 0, onProgressChan
   const getSvgX = useCallback((x: number) => x * scale + offsetX, [scale, offsetX]);
   const getSvgY = useCallback((y: number) => svgHeight - (y * scale + offsetY), [scale, offsetY, svgHeight]);
 
-  // 更新 Canvas 核心逻辑：最高性能的 2D 绘图
-  const updateCanvasNodes = useCallback((timeFloat: number) => {
+  // 更新 Canvas 核心逻辑：最高性能的 2D 绘图（基于路程/秒）
+  const updateCanvasNodes = useCallback((distance: number) => {
     if (!canvasRef.current || currentPath.length === 0) return;
     const ctx = canvasRef.current.getContext('2d');
     if (!ctx) return;
 
-    const progressR = totalLines > 1 ? timeFloat / (totalLines - 1) : 0;
-    const clampedProgressR = Math.max(0, Math.min(1, progressR));
-    const pathIdxFloat = clampedProgressR * (currentPath.length - 1);
-    const idx = Math.max(0, Math.min(Math.floor(pathIdxFloat), currentPath.length - 1));
-    const frac = pathIdxFloat - idx;
+    const totalDist = currentTotalDist;
+    const cumDist = currentCumDist;
+
+    // 根据累计路程查找路径段索引
+    const clampedDist = Math.max(0, Math.min(distance, totalDist));
+    let idx = 0;
+    let frac = 0;
+    if (totalDist > 0 && cumDist.length > 1) {
+      while (idx < cumDist.length - 2 && cumDist[idx + 1] <= clampedDist) {
+        idx++;
+      }
+      const segLen = cumDist[idx + 1] - cumDist[idx];
+      frac = segLen > 0 ? (clampedDist - cumDist[idx]) / segLen : 0;
+    }
 
     ctx.clearRect(0, 0, svgWidth, svgHeight);
-
-    // 缓存 Path2D 以避免每帧重复计算长路径
-    if (!ctx.canvas.dataset.pathCache) {
-      const p = new Path2D();
-      p.moveTo(getSvgX(currentPath[0][0]), getSvgY(currentPath[0][1]));
-      for (let i = 1; i <= currentPath.length - 1; i++) {
-        p.lineTo(getSvgX(currentPath[i][0]), getSvgY(currentPath[i][1]));
-      }
-      // 此处将整个路径存入一个 offscreen，但此处只重绘当帧前段
-    }
 
     // 绘制已完成的路径
     ctx.beginPath();
@@ -175,7 +151,7 @@ export default function GcodeSimulator({ gcode, currentIndex = 0, onProgressChan
     ctx.lineJoin = 'round';
 
     ctx.moveTo(getSvgX(currentPath[0][0]), getSvgY(currentPath[0][1]));
-    
+
     // 性能要点：当路径点非常多时（比如几万个点），每帧循环几万次 lineTo 会严重拖慢 CPU
     // 导致 GC 或渲染拥塞，进而出现有规律的掉帧（每隔n帧卡一下）。
     // 我们仅循环截断到当前进度
@@ -186,7 +162,7 @@ export default function GcodeSimulator({ gcode, currentIndex = 0, onProgressChan
     // 插值计算当前点
     let hx = currentPath[idx][0];
     let hy = currentPath[idx][1];
-    
+
     if (idx >= 0 && idx < currentPath.length - 1) {
       const p1 = currentPath[idx];
       const p2 = currentPath[idx+1];
@@ -195,10 +171,10 @@ export default function GcodeSimulator({ gcode, currentIndex = 0, onProgressChan
         hy = p1[1] + (p2[1] - p1[1]) * frac;
       }
     }
-    
+
     const headX = getSvgX(hx);
     const headY = getSvgY(hy);
-    
+
     ctx.lineTo(headX, headY);
     ctx.stroke();
 
@@ -207,46 +183,39 @@ export default function GcodeSimulator({ gcode, currentIndex = 0, onProgressChan
     ctx.fillStyle = '#38bdf8';
     ctx.arc(headX, headY, 4, 0, Math.PI * 2);
     ctx.fill();
+  }, [currentPath, currentCumDist, currentTotalDist, getSvgX, getSvgY]);
 
-    if (progressTextRef.current) {
-      const displayLine = Math.min(Math.floor(timeFloat) + 1, totalLines);
-      progressTextRef.current.innerText = `${displayLine} / ${totalLines}`;
-    }
-    
-    if (sliderRef.current) {
-      sliderRef.current.value = String(Math.floor(timeFloat));
-    }
-  }, [currentPath, totalLines, getSvgX, getSvgY]);
-
-  // 动画核心循环 - 彻底避开 React State
+  // 如果外部 currentIndex 改变（如 3D 视图暂停/重播/拖动进度条时同步过来）
   useEffect(() => {
-    if (!isPlaying) return;
+    const currentDist = currentDistRef.current;
+    // 将外部行索引转换为路程值
+    const externalDist = currentTotalDist > 0
+      ? (currentIndex / (totalLines - 1)) * currentTotalDist
+      : 0;
+    if (Math.abs(externalDist - currentDist) > 1) {
+      currentDistRef.current = externalDist;
+      updateCanvasNodes(externalDist);
+    }
+  }, [currentIndex, currentTotalDist, totalLines, updateCanvasNodes]);
 
-    let animationFrameId: number;
-
-    const animate = (time: number) => {
-      if (!startTimeRef.current) startTimeRef.current = time;
-      
-      const elapsedMs = time - startTimeRef.current;
-      const currentLineFloat = (elapsedMs / 1000) * 30; // 30行/秒
-      
-      if (currentLineFloat >= totalLines - 1) {
-        startTimeRef.current = time;
-        internalTimeRef.current = 0;
-        updateCanvasNodes(0);
-        onProgressChangeRef.current?.(0);
-      } else {
-        internalTimeRef.current = currentLineFloat;
-        updateCanvasNodes(currentLineFloat);
-        // 完全停止向父组件(App)抛出进度事件，避免由于 App 重新渲染引发的“每隔0.5s有规律卡顿”
-        // UI 的更新交由 ref 直接操作 DOM（Slider与Text）完成
-      }
-      animationFrameId = requestAnimationFrame(animate);
+  // 监听 3D 视图广播的播放进度事件，实时同步绘制（无需 60fps React 渲染）
+  useEffect(() => {
+    const handleProgress = (e: Event) => {
+      const distance = (e as CustomEvent<{ distance: number }>).detail?.distance;
+      if (typeof distance !== 'number') return;
+      if (Math.abs(distance - currentDistRef.current) < 0.05) return;
+      currentDistRef.current = distance;
+      updateCanvasNodes(distance);
     };
+    window.addEventListener('gcode-progress', handleProgress);
+    return () => window.removeEventListener('gcode-progress', handleProgress);
+  }, [updateCanvasNodes]);
 
-    animationFrameId = requestAnimationFrame(animate);
-    return () => cancelAnimationFrame(animationFrameId);
-  }, [isPlaying, totalLines, updateCanvasNodes]); 
+  // gcode 变化时重置进度并重绘
+  useEffect(() => {
+    currentDistRef.current = 0;
+    updateCanvasNodes(0);
+  }, [gcode, updateCanvasNodes]);
 
   const gridLines = useMemo(() => {
     const spacing = 50; 
@@ -285,7 +254,7 @@ export default function GcodeSimulator({ gcode, currentIndex = 0, onProgressChan
 
   // 初始加载和视图切换时触发节点更新
   useEffect(() => {
-    updateCanvasNodes(internalTimeRef.current);
+    updateCanvasNodes(currentDistRef.current);
   }, [viewMode, gcode, updateCanvasNodes, currentPath.length]);
 
   return (
@@ -296,19 +265,6 @@ export default function GcodeSimulator({ gcode, currentIndex = 0, onProgressChan
           <Button onClick={() => setViewMode('UZ')} sx={{ color: viewMode === 'UZ' ? '#38bdf8' : '#94a3b8', borderColor: '#334155', bgcolor: viewMode === 'UZ' ? 'rgba(56, 189, 248, 0.1)' : 'transparent' }}>UZ</Button>
         </ButtonGroup>
         <Typography variant="caption" sx={{ color: '#64748b', fontFamily: 'monospace' }}> {contentWidth.toFixed(1)}x{contentHeight.toFixed(1)}mm </Typography>
-      </Box>
-
-      <Box sx={{ position: 'absolute', top: 12, right: 12, zIndex: 10, display: 'flex', gap: 1 }}>
-        <Tooltip title={isPlaying ? "暂停" : "循环播放"}>
-          <IconButton size="small" onClick={togglePlay} sx={{ color: isPlaying ? '#fb923c' : '#38bdf8', bgcolor: 'rgba(15, 23, 42, 0.8)', border: '1px solid #334155', '&:hover': { bgcolor: 'rgba(30, 41, 59, 1)' } }}>
-            {isPlaying ? <PauseIcon fontSize="small" /> : <PlayArrowIcon fontSize="small" />}
-          </IconButton>
-        </Tooltip>
-        <Tooltip title="从头开始">
-          <IconButton size="small" onClick={handleRestart} sx={{ color: '#94a3b8', bgcolor: 'rgba(15, 23, 42, 0.8)', border: '1px solid #334155', '&:hover': { bgcolor: 'rgba(30, 41, 59, 1)' } }}>
-            <ReplayIcon fontSize="small" />
-          </IconButton>
-        </Tooltip>
       </Box>
 
       <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', p: 0, overflow: 'hidden', position: 'relative' }}>
@@ -331,37 +287,6 @@ export default function GcodeSimulator({ gcode, currentIndex = 0, onProgressChan
             width: '100%', 
             height: '100%',
             objectFit: 'contain' 
-          }}
-        />
-      </Box>
-
-      <Box sx={{ px: 2, pt: 1, pb: 1, bgcolor: '#0f172a', borderTop: '1px solid #1e293b' }}>
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
-          <Typography sx={{ fontSize: '10px', color: '#64748b' }}>START</Typography>
-          <Typography sx={{ fontSize: '10px', color: '#38bdf8', fontVariantNumeric: 'tabular-nums' }}>
-            <span ref={progressTextRef}>{currentIndex + 1} / {totalLines}</span>
-          </Typography>
-          <Typography sx={{ fontSize: '10px', color: '#64748b' }}>END</Typography>
-        </Box>
-        <input 
-          ref={sliderRef}
-          type="range" 
-          min={0} 
-          max={totalLines - 1 || 0} 
-          defaultValue={currentIndex}
-          style={{ width: '100%', height: '4px', accentColor: '#38bdf8', cursor: 'pointer', background: '#334155', appearance: 'auto' }} 
-          onChange={(e) => {
-            const val = Number(e.target.value);
-            internalTimeRef.current = val;
-            updateCanvasNodes(val);
-          }}
-          onMouseUp={(e) => {
-            const val = Number((e.target as HTMLInputElement).value);
-            onProgressChange?.(val);
-          }}
-          onTouchEnd={(e) => {
-            const val = Number((e.target as HTMLInputElement).value);
-            onProgressChange?.(val);
           }}
         />
       </Box>

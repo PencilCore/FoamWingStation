@@ -1,5 +1,5 @@
 // src/components/ThreePreview.tsx
-import { useEffect, useMemo, useState, useRef } from 'react'
+import { useEffect, useMemo, useState, useRef, useCallback } from 'react'
 import { Canvas } from '@react-three/fiber'
 // 保留 OrbitControls, Grid
 import { OrbitControls, Grid, Text, Line as DreiLine } from '@react-three/drei' 
@@ -56,15 +56,57 @@ function FoamBlock({ width, height, offsetX = 0, offsetY = 0 }: { width: number,
   const hx = offsetX + width / 2
   const hy = offsetY + height / 2
   const hz = foamOffsetZ + wingSpan / 2
-  
+
+  // 生成泡沫材质噪声纹理
+  const foamTexture = useMemo(() => {
+    const size = 256;
+    const canvas = document.createElement('canvas');
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext('2d')!;
+
+    // 底色
+    ctx.fillStyle = '#f5e6c8';
+    ctx.fillRect(0, 0, size, size);
+
+    // 随机噪点（泡沫孔洞）
+    const imageData = ctx.getImageData(0, 0, size, size);
+    const data = imageData.data;
+    for (let i = 0; i < data.length; i += 4) {
+      const noise = (Math.random() - 0.5) * 30;
+      data[i] = Math.max(0, Math.min(255, data[i] + noise));
+      data[i + 1] = Math.max(0, Math.min(255, data[i + 1] + noise));
+      data[i + 2] = Math.max(0, Math.min(255, data[i + 2] + noise));
+    }
+    ctx.putImageData(imageData, 0, 0);
+
+    // 随机泡沫孔洞（小圆点）
+    for (let i = 0; i < 120; i++) {
+      const x = Math.random() * size;
+      const y = Math.random() * size;
+      const r = 1 + Math.random() * 4;
+      const alpha = 0.1 + Math.random() * 0.25;
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(160, 140, 110, ${alpha})`;
+      ctx.fill();
+    }
+
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+    tex.repeat.set(2, 2);
+    return tex;
+  }, []);
+
   return (
     <mesh position={[hx, hy, hz]}> 
       <boxGeometry args={[width, height, wingSpan]} />
       <meshStandardMaterial 
-        color="#64748b" 
+        color="#f5e6c8"
+        map={foamTexture}
         transparent 
-        opacity={0.12} 
-        roughness={0.8}
+        opacity={0.18} 
+        roughness={0.9}
         metalness={0}
         polygonOffset 
         polygonOffsetFactor={1} 
@@ -75,12 +117,15 @@ function FoamBlock({ width, height, offsetX = 0, offsetY = 0 }: { width: number,
   )
 }
 
-/** 跟随刀头移动的马达模拟盒 — X+Y 联动 */
+/** 跟随刀头移动的马达模拟盒 — 每塔 X/Y 双马达 + 丝杆 */
 function LiveMotorBox({ viewMode, leftData, rightData, bothData, percent, gantryDistance }: {
   viewMode: 'left' | 'right' | 'both';
   leftData: any; rightData: any; bothData?: any;
   percent: number; gantryDistance: number;
 }) {
+  const { model } = useWing()
+  const { machineHeight = 600 } = model
+
   const getPos = (path: THREE.Vector3[], pct: number) => {
     if (!path?.length) return { x: 0, y: 0 };
     const idx = Math.max(0, Math.min(path.length - 1, Math.floor(pct * (path.length - 1))));
@@ -97,25 +142,54 @@ function LiveMotorBox({ viewMode, leftData, rightData, bothData, percent, gantry
     rightPos = getPos(data?.fullPathTip, percent / 100);
   }
   
-  const motorW = 30, motorH = 40, motorD = 20;
+  const SCALE = 3;
+  const xMotorW = 40 * SCALE, xMotorH = 20 * SCALE, xMotorD = 16 * SCALE;  // X 轴马达：宽扁
+  const yMotorW = 24 * SCALE, yMotorH = 36 * SCALE, yMotorD = 16 * SCALE;  // Y 轴马达：窄高
+  const PLATFORM_TOP_Y = 2;  // 切割平台顶面 Y 坐标（来自 Machine4Axis 底板）
+  // X 轴马达顶部在平台下方 yMotorH 距离，与 Y 轴马达保持间距
+  const xMotorTopY = PLATFORM_TOP_Y - yMotorH;
+  const xMotorCenterY = xMotorTopY - xMotorH / 2;
   
   return (
     <group>
-      {/* 左塔马达 (Z=0 外侧) — 跟随 leftPos (X,Y) */}
-      <mesh position={[leftPos.x - motorW / 2 - 8, leftPos.y, -motorD / 2]}>
-        <boxGeometry args={[motorW, motorH, motorD]} />
-        <meshStandardMaterial color="#3b82f6" transparent opacity={0.25} roughness={0.4} metalness={0.7} depthWrite={false} />
+      {/* ===== 左塔 ===== */}
+      {/* 丝杆 — 垂直穿过 X/Y 马达，长度与机台高度一致 */}
+      <mesh position={[leftPos.x, machineHeight / 2, -xMotorD / 2]}>
+        <boxGeometry args={[4 * SCALE, machineHeight, 4 * SCALE]} />
+        <meshStandardMaterial color="#94a3b8" roughness={0.3} metalness={0.9} />
       </mesh>
-      {/* 右塔马达 (Z=gd 外侧) — 跟随 rightPos (U,Z) */}
-      <mesh position={[rightPos.x - motorW / 2 - 8, rightPos.y, gantryDistance + motorD / 2]}>
-        <boxGeometry args={[motorW, motorH, motorD]} />
-        <meshStandardMaterial color="#f97316" transparent opacity={0.25} roughness={0.4} metalness={0.7} depthWrite={false} />
+      {/* X 轴马达 — 在平台下方 yMotorH 距离，顶部与 Y 马达保持间距 */}
+      <mesh position={[leftPos.x, xMotorCenterY, -xMotorD / 2]}>
+        <boxGeometry args={[xMotorW, xMotorH, xMotorD]} />
+        <meshStandardMaterial color="#3b82f6" roughness={0.4} metalness={0.7} />
+      </mesh>
+      {/* Y 轴马达 — 顶部中心与路径点平齐（点位于马达顶面中心） */}
+      <mesh position={[leftPos.x, leftPos.y - yMotorH / 2, -yMotorD / 2]}>
+        <boxGeometry args={[yMotorW, yMotorH, yMotorD]} />
+        <meshStandardMaterial color="#60a5fa" roughness={0.4} metalness={0.6} />
+      </mesh>
+
+      {/* ===== 右塔 ===== */}
+      {/* 丝杆 — 垂直穿过 X/Y 马达 */}
+      <mesh position={[rightPos.x, machineHeight / 2, gantryDistance + xMotorD / 2]}>
+        <boxGeometry args={[4 * SCALE, machineHeight, 4 * SCALE]} />
+        <meshStandardMaterial color="#94a3b8" roughness={0.3} metalness={0.9} />
+      </mesh>
+      {/* X 轴马达 — 在平台下方 yMotorH 距离 */}
+      <mesh position={[rightPos.x, xMotorCenterY, gantryDistance + xMotorD / 2]}>
+        <boxGeometry args={[xMotorW, xMotorH, xMotorD]} />
+        <meshStandardMaterial color="#f97316" roughness={0.4} metalness={0.7} />
+      </mesh>
+      {/* Y 轴马达 — 顶部中心与路径点平齐 */}
+      <mesh position={[rightPos.x, rightPos.y - yMotorH / 2, gantryDistance + yMotorD / 2]}>
+        <boxGeometry args={[yMotorW, yMotorH, yMotorD]} />
+        <meshStandardMaterial color="#fb923c" roughness={0.4} metalness={0.6} />
       </mesh>
     </group>
   )
 }
 
-function WingOutline({ points, color = '#2196f3', opacity = 1, lineWidth = 2 }: { points: THREE.Vector3[]; color?: string; opacity?: number; lineWidth?: number }) {
+function WingOutline({ points, color = '#2196f3', opacity = 1 }: { points: THREE.Vector3[]; color?: string; opacity?: number }) {
   const geometryRef = useRef<THREE.BufferGeometry>(null)
 
   useEffect(() => {
@@ -132,10 +206,9 @@ function WingOutline({ points, color = '#2196f3', opacity = 1, lineWidth = 2 }: 
   return (
     <line>
       <bufferGeometry ref={geometryRef} />
-      <lineBasicMaterial 
-        color={color} 
-        linewidth={lineWidth} 
-        transparent 
+      <lineBasicMaterial
+        color={color}
+        transparent
         opacity={opacity}
         depthTest={true}
       />
@@ -198,6 +271,12 @@ export default function ThreePreview() {
   const loadTokenRef = useRef(0)
   const [realPos, setRealPos] = useState({ X: 0, Y: 0, U: 0, Z: 0 })
   const [percent, setPercent] = useState(0)
+  const [isPlaying, setIsPlaying] = useState(false)
+  const startTimeRef = useRef(0)
+  const internalDistRef = useRef(0)
+  const sliderRef = useRef<HTMLInputElement>(null)
+  const progressTextRef = useRef<HTMLSpanElement>(null)
+  const ANIMATION_SPEED_MM_PER_SEC = 100
 
   useEffect(() => {
     let active = true
@@ -375,13 +454,105 @@ export default function ThreePreview() {
     return new THREE.Vector3(foamChord / 2, foamThickness / 2, wingSpan / 2)
   }, [left, right, rightOffset, viewMode, model.interWingOffsetX, model.interWingOffsetY, model.stackingMode, foamChord, wingSpan, foamThickness])
 
-	return (
+  // 计算路径总长度（mm）
+  const calcTotalDist = useCallback((paths: THREE.Vector3[][]): number => {
+    let maxDist = 0;
+    for (const path of paths) {
+      let dist = 0;
+      for (let i = 1; i < path.length; i++) {
+        dist += path[i].distanceTo(path[i - 1]);
+      }
+      maxDist = Math.max(maxDist, dist);
+    }
+    return maxDist;
+  }, []);
+
+  // 获取当前视图的路径数组
+  const getActivePaths = useCallback((): THREE.Vector3[][] => {
+    if (viewMode === 'both' && processedData?.both) {
+      return [processedData.both.fullPathRoot, processedData.both.fullPathTip];
+    }
+    const data = viewMode === 'left' ? processedData?.left : processedData?.right;
+    if (data) {
+      return [data.fullPathRoot, data.fullPathTip];
+    }
+    return [];
+  }, [viewMode, processedData]);
+
+  const totalDist = useMemo(() => calcTotalDist(getActivePaths()), [calcTotalDist, getActivePaths]);
+
+  // 同步 percent → 内部距离值
+  const percentToDist = useCallback((pct: number) => (pct / 100) * totalDist, [totalDist]);
+
+  // 动画核心循环
+  useEffect(() => {
+    if (!isPlaying || totalDist <= 0) return;
+
+    let animationFrameId: number;
+    const animate = (time: number) => {
+      if (!startTimeRef.current) startTimeRef.current = time;
+      const elapsedMs = time - startTimeRef.current;
+      const currentDist = (elapsedMs / 1000) * ANIMATION_SPEED_MM_PER_SEC;
+
+      if (currentDist >= totalDist) {
+        // 播放完毕，循环
+        startTimeRef.current = time;
+        internalDistRef.current = 0;
+        setPercent(0);
+        if (sliderRef.current) sliderRef.current.value = '0';
+        if (progressTextRef.current) progressTextRef.current.textContent = `0.0 / ${totalDist.toFixed(1)} mm`;
+      } else {
+        internalDistRef.current = currentDist;
+        const pct = (currentDist / totalDist) * 100;
+        setPercent(pct);
+        if (sliderRef.current) sliderRef.current.value = String(currentDist.toFixed(1));
+        if (progressTextRef.current) progressTextRef.current.textContent = `${currentDist.toFixed(1)} / ${totalDist.toFixed(1)} mm`;
+      }
+      animationFrameId = requestAnimationFrame(animate);
+    };
+
+    animationFrameId = requestAnimationFrame(animate);
+    return () => cancelAnimationFrame(animationFrameId);
+  }, [isPlaying, totalDist]);
+
+  const togglePlay = useCallback(() => {
+    if (!isPlaying) {
+      // 从暂停恢复
+      startTimeRef.current = performance.now() - (internalDistRef.current / ANIMATION_SPEED_MM_PER_SEC * 1000);
+      setIsPlaying(true);
+    } else {
+      setIsPlaying(false);
+    }
+  }, [isPlaying]);
+
+  const handleRestart = useCallback(() => {
+    internalDistRef.current = 0;
+    setPercent(0);
+    startTimeRef.current = performance.now();
+    setIsPlaying(true);
+    if (sliderRef.current) sliderRef.current.value = '0';
+    if (progressTextRef.current) progressTextRef.current.textContent = `0.0 / ${totalDist.toFixed(1)} mm`;
+  }, [totalDist]);
+
+  const handleSliderChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const dist = Number(e.target.value);
+    const pct = totalDist > 0 ? (dist / totalDist) * 100 : 0;
+    internalDistRef.current = dist;
+    setPercent(pct);
+    if (progressTextRef.current) progressTextRef.current.textContent = `${dist.toFixed(1)} / ${totalDist.toFixed(1)} mm`;
+  }, [totalDist]);
+
+  return (
     <div style={{ width: '100%', height: '100%', position: 'relative', background: '#121212', border: '1px solid #2e2e2e', minHeight: 0, borderRadius: 12, overflow: 'hidden' }}>
       <Canvas
         dpr={[1, 2]}
         camera={{
-          position: [centerTarget.x + foamChord * 1.5, centerTarget.y + foamThickness * 2, centerTarget.z + wingSpan * 0.8],
-          fov: 40,
+          position: [
+            centerTarget.x + Math.max(foamChord, wingSpan) * 1.2,
+            centerTarget.y + Math.max(foamChord, wingSpan) * 0.8,
+            centerTarget.z + Math.max(foamChord, wingSpan) * 0.6,
+          ],
+          fov: 35,
           near: 0.1,
           far: 10000,
           up: [0, 1, 0],
@@ -389,25 +560,38 @@ export default function ThreePreview() {
         shadows
       >
         
-  {/* 增强灯光：主光 + 补光 + 环境 */}
-  <ambientLight intensity={0.8} color="#bae6fd" /> 
-  <directionalLight position={[300, 400, 200]} intensity={2.5} color="#ffffff" castShadow /> 
-  <directionalLight position={[-200, 100, -300]} intensity={0.8} color="#e0f2fe" />
-  <directionalLight position={[0, -50, 100]} intensity={0.4} color="#94a3b8" />
-  <hemisphereLight intensity={0.5} color="#bae6fd" groundColor="#1e293b" />
-        
-        <OrbitControls
+  {/* 移除雾效，保持视野清晰 */}
+
+  {/* 灯光：明亮且干净的主光 + 补光 */}
+  <ambientLight intensity={1.2} color="#ffffff" />
+  <directionalLight
+    position={[500, 800, 400]}
+    intensity={6.0}
+    color="#ffffff"
+    castShadow
+    shadow-mapSize-width={2048}
+    shadow-mapSize-height={2048}
+    shadow-bias={-0.001}
+  />
+  <directionalLight position={[-400, 300, -500]} intensity={2.5} color="#ffffff" />
+  <directionalLight position={[0, -200, 500]} intensity={1.2} color="#e0f2fe" />
+  <hemisphereLight intensity={0.8} color="#ffffff" groundColor="#94a3b8" />
+  
+  <OrbitControls
           makeDefault 
           target={centerTarget}
           enablePan={true}
           enableZoom={true}
-        />
-        
-        <Grid 
-          args={[3000, 60]} 
-          cellColor="#404040" 
-          sectionColor="#2e2e2e"
-          position={[centerTarget.x, -2, centerTarget.z]} 
+          enableDamping={false}
+          rotateSpeed={0.8}
+          zoomSpeed={1.2}
+          panSpeed={0.8}
+          minDistance={50}
+          mouseButtons={{
+            LEFT: THREE.MOUSE.PAN,
+            MIDDLE: THREE.MOUSE.ROTATE,
+            RIGHT: THREE.MOUSE.ROTATE
+          }}
         />
 
         {/* 坐标轴保持不旋转 */}
@@ -475,13 +659,15 @@ export default function ThreePreview() {
                 if (!r) return null;
                 return (
                   <>
-                    <WingSurface rootPts={r.wingRoot} tipPts={r.wingTip} color="#38bdf8" />
-                    <WingOutline points={r.wingRoot} color="#38bdf8" lineWidth={2} />
-                    <WingOutline points={r.wingTip} color="#fb923c" lineWidth={2} />
+                    <WingSurface rootPts={r.wingRoot} tipPts={r.wingTip} color="#7c3aed" />
+                    <WingEndCap points={r.wingRoot} color="#7c3aed" />
+                    <WingEndCap points={r.wingTip} color="#7c3aed" />
+                    <WingOutline points={r.wingRoot} color="#a78bfa" />
+                    <WingOutline points={r.wingTip} color="#c4b5fd" />
                     {viewMode === 'right' && r.fullPathRoot.length > 0 && (
                       <>
-                        <WingOutline points={r.fullPathRoot} color="#38bdf8" opacity={0.4} lineWidth={1} />
-                        <WingOutline points={r.fullPathTip} color="#fb923c" opacity={0.4} lineWidth={1} />
+                        <WingOutline points={r.fullPathRoot} color="#a78bfa" opacity={0.5} />
+                        <WingOutline points={r.fullPathTip} color="#c4b5fd" opacity={0.5} />
                       </>
                     )}
                   </>
@@ -493,13 +679,15 @@ export default function ThreePreview() {
           {/* 左翼 (isRightWing=false) */}
           {(viewMode === 'left' || viewMode === 'both') && left && (
             <group>
-              <WingSurface rootPts={left.wingRoot} tipPts={left.wingTip} color="#a78bfa" />
-              <WingOutline points={left.wingRoot} color="#a78bfa" lineWidth={2} />
-              <WingOutline points={left.wingTip} color="#fb923c" lineWidth={2} />
+              <WingSurface rootPts={left.wingRoot} tipPts={left.wingTip} color="#7c3aed" />
+              <WingEndCap points={left.wingRoot} color="#7c3aed" />
+              <WingEndCap points={left.wingTip} color="#7c3aed" />
+              <WingOutline points={left.wingRoot} color="#a78bfa" />
+              <WingOutline points={left.wingTip} color="#c4b5fd" />
                {viewMode === 'left' && left.fullPathRoot.length > 0 && (
                 <>
-                  <WingOutline points={left.fullPathRoot} color="#a78bfa" opacity={0.4} lineWidth={1} />
-                  <WingOutline points={left.fullPathTip} color="#fb923c" opacity={0.4} lineWidth={1} />
+                  <WingOutline points={left.fullPathRoot} color="#a78bfa" opacity={0.5} />
+                  <WingOutline points={left.fullPathTip} color="#c4b5fd" opacity={0.5} />
                 </>
               )}
             </group>
@@ -508,8 +696,8 @@ export default function ThreePreview() {
           {/* 双翼模式下的完整路径 */}
           {viewMode === 'both' && processedData?.both && (
             <>
-              <WingOutline points={processedData.both.fullPathRoot} color="#4ade80" opacity={0.6} lineWidth={2} />
-              <WingOutline points={processedData.both.fullPathTip} color="#f87171" opacity={0.6} lineWidth={2} />
+              <WingOutline points={processedData.both.fullPathRoot} color="#ef4444" opacity={0.8} />
+              <WingOutline points={processedData.both.fullPathTip} color="#ef4444" opacity={0.8} />
             </>
           )}
 
@@ -615,15 +803,12 @@ export default function ThreePreview() {
         </ToggleButtonGroup>
       </Box>
 
-      {/* 恢复进度显示滑块 */}
+      {/* 底部播放进度条 — 参照 2D 视图样式 */}
       <div style={{
         position: 'absolute',
         bottom: 12,
         left: 12,
         right: 12,
-        display: 'flex',
-        alignItems: 'center',
-        gap: '12px',
         padding: '8px 16px',
         background: 'rgba(15, 23, 42, 0.85)',
         borderRadius: '12px',
@@ -631,41 +816,52 @@ export default function ThreePreview() {
         backdropFilter: 'blur(4px)',
         zIndex: 100
       }}>
-        <div style={{ color: '#94a3b8', fontSize: '10px', fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: '0.1em', minWidth: '50px' }}>Preview</div>
-        <input
-          type="range"
-          min="0"
-          max="100"
-          value={percent}
-          onChange={e => setPercent(Number(e.target.value))}
-          style={{
-            flex: 1,
-            height: 4,
-            background: `linear-gradient(90deg, #38bdf8 ${percent}%, rgba(56, 189, 248, 0.1) ${percent}%)`,
-            borderRadius: 2,
-            appearance: 'none',
-            outline: 'none',
-            cursor: 'pointer'
-          }}
-        />
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <input 
-            type="number"
-            value={percent}
-            onChange={e => setPercent(Math.min(100, Math.max(0, Number(e.target.value))))}
+        {/* START / 路程 / END */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+          <span style={{ fontSize: '10px', color: '#64748b' }}>START</span>
+          <span ref={progressTextRef} style={{ fontSize: '10px', color: '#38bdf8', fontVariantNumeric: 'tabular-nums' }}>
+            0.0 / {totalDist.toFixed(1)} mm
+          </span>
+          <span style={{ fontSize: '10px', color: '#64748b' }}>END</span>
+        </div>
+
+        {/* 播放控制 + 滑块 */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          {/* 重新开始 */}
+          <button onClick={handleRestart}
             style={{
-              width: '50px',
-              background: 'transparent',
-              border: '1px solid rgba(56, 189, 248, 0.3)',
-              borderRadius: '4px',
-              color: '#38bdf8',
-              fontFamily: 'JetBrains Mono, monospace',
-              fontSize: '14px',
-              textAlign: 'center',
-              outline: 'none'
+              background: 'transparent', border: 'none', cursor: 'pointer',
+              color: '#94a3b8', fontSize: '16px', lineHeight: 1, padding: '4px',
+              display: 'flex', alignItems: 'center'
+            }}
+            title="重新开始"
+          >⏮</button>
+
+          {/* 播放 / 暂停 */}
+          <button onClick={togglePlay}
+            style={{
+              background: 'transparent', border: 'none', cursor: 'pointer',
+              color: '#38bdf8', fontSize: '18px', lineHeight: 1, padding: '4px',
+              display: 'flex', alignItems: 'center'
+            }}
+            title={isPlaying ? '暂停' : '播放'}
+          >{isPlaying ? '⏸' : '▶'}</button>
+
+          {/* 进度滑块 */}
+          <input
+            ref={sliderRef}
+            type="range"
+            min={0}
+            max={totalDist || 0}
+            step="any"
+            defaultValue={0}
+            onChange={handleSliderChange}
+            style={{
+              flex: 1, height: 4,
+              accentColor: '#38bdf8', cursor: 'pointer',
+              background: '#334155', appearance: 'auto'
             }}
           />
-          <span style={{ color: '#38bdf8', fontSize: '14px', fontWeight: 'bold' }}>%</span>
         </div>
       </div>
     </div>
@@ -702,7 +898,7 @@ function PreviewHotwire({ leftData, rightData, bothData, viewMode, percent }: {
 
   return (
     <group>
-      <DreiLine points={[start, end]} color="#4ade80" lineWidth={viewMode === 'both' ? 4 : 3} />
+      <DreiLine points={[start, end]} color="#ef4444" lineWidth={viewMode === 'both' ? 4 : 3} />
       {/* 左塔球 */}
       <mesh position={start.toArray()} frustumCulled={false}>
         <sphereGeometry args={[viewMode === 'both' ? 3.5 : 2.5, 16, 16]} />
@@ -717,53 +913,75 @@ function PreviewHotwire({ leftData, rightData, bothData, viewMode, percent }: {
   );
 }
 
-function Machine4Axis({ wingSpan: _wingSpan }: { wingSpan: number; foamChord: number; foamThickness?: number; washout?: number }) {
+export function Machine4Axis({ wingSpan: _wingSpan }: { wingSpan: number; foamChord: number; foamThickness?: number; washout?: number }) {
   const { model } = useWing()
-  const { machineWidth = 1000, machineHeight = 600, xyuvMode = ['x', 'y', 'u', 'z'], gantryDistance = 1200 } = model
+  const { machineWidth = 1000, machineHeight = 600, gantryDistance = 1200 } = model
 
   const towerDistance = gantryDistance;
-  let leftText = (xyuvMode[0] || '').toUpperCase() + (xyuvMode[1] || '').toUpperCase();
-  let rightText = (xyuvMode[2] || '').toUpperCase() + (xyuvMode[3] || '').toUpperCase();
+
+  // 立柱/导轨位置
+  const colW = 12, colD = 12;
+  const colPositions = [
+    [0, 0, 0], [machineWidth, 0, 0],
+    [0, 0, towerDistance], [machineWidth, 0, towerDistance],
+  ];
 
   return (
     <group>
-      {/* 增强塔架平面的可见性 */}
-      <mesh position={[machineWidth / 2, machineHeight / 2, 0]}>
-        <planeGeometry args={[machineWidth, machineHeight]} />
-        <meshStandardMaterial color="#3b82f6" transparent opacity={0.05} side={THREE.DoubleSide} depthWrite={false} />
-      </mesh>
-
-      <Text
-        position={[machineWidth / 2, machineHeight / 2 + 50, 2]}
-        fontSize={40}
-        color="#3b82f6"
-        anchorX="center"
-        anchorY="middle"
-        fillOpacity={0.6}
-      >{leftText}</Text>
-
-      {/* 右侧塔架 */}
-      <group position={[0, 0, towerDistance]}>
-        <mesh position={[machineWidth / 2, machineHeight / 2, 0]}>
-          <planeGeometry args={[machineWidth, machineHeight]} />
-          <meshStandardMaterial color="#fb923c" transparent opacity={0.05} side={THREE.DoubleSide} depthWrite={false} />
+      {/* 4 根立柱 */}
+      {colPositions.map((pos, i) => (
+        <mesh key={i} position={[pos[0], machineHeight / 2, pos[2]]}>
+          <boxGeometry args={[colW, machineHeight, colD]} />
+          <meshStandardMaterial
+            color="#475569"
+            metalness={0.8}
+            roughness={0.3}
+            transparent
+            opacity={0.65}
+          />
         </mesh>
-        <Text
-          position={[machineWidth / 2, machineHeight / 2 + 50, -2]}
-          rotation={[0, Math.PI, 0]}
-          fontSize={40}
-          color="#fb923c"
-          anchorX="center"
-          anchorY="middle"
-          fillOpacity={0.6}
-        >{rightText}</Text>
-      </group>
+      ))}
 
-      {/* 地面平面 - 略微下移以避开 Y=0 平面 */}
-      <mesh position={[machineWidth / 2, -0.5, towerDistance / 2]} rotation={[-Math.PI / 2, 0, 0]}>
-        <planeGeometry args={[machineWidth, towerDistance]} />
-        <meshStandardMaterial color="#94a3b8" transparent opacity={0.03} side={THREE.DoubleSide} depthWrite={false} />
+      {/* 顶部横梁（左塔架） */}
+      <mesh position={[machineWidth / 2, machineHeight, 0]}>
+        <boxGeometry args={[machineWidth + colW, 6, 8]} />
+        <meshStandardMaterial color="#64748b" metalness={0.7} roughness={0.4} transparent opacity={0.6} />
       </mesh>
+      {/* 顶部横梁（右塔架） */}
+      <mesh position={[machineWidth / 2, machineHeight, towerDistance]}>
+        <boxGeometry args={[machineWidth + colW, 6, 8]} />
+        <meshStandardMaterial color="#64748b" metalness={0.7} roughness={0.4} transparent opacity={0.6} />
+      </mesh>
+
+      {/* 底部底板 — 微厚度，上方覆盖遮挡grid，下方透明可见 */}
+      <mesh position={[machineWidth / 2, 1, towerDistance / 2]}>
+        <boxGeometry args={[machineWidth + colW, 2, towerDistance + colD]} />
+        <meshStandardMaterial color="#2a2a3a" metalness={0} roughness={0.9} side={THREE.FrontSide} />
+      </mesh>
+      <mesh position={[machineWidth / 2, -1, towerDistance / 2]}>
+        <boxGeometry args={[machineWidth + colW, 2, towerDistance + colD]} />
+        <meshStandardMaterial color="#475569" metalness={0} roughness={0.9} transparent opacity={0.2} side={THREE.BackSide} depthWrite={false} />
+      </mesh>
+
+      {/* 导轨线（热丝路径参考）— 4 条水平线 */}
+      {[
+        [[0, machineHeight * 0.25, 0], [machineWidth, machineHeight * 0.25, 0]],
+        [[0, machineHeight * 0.75, 0], [machineWidth, machineHeight * 0.75, 0]],
+        [[0, machineHeight * 0.25, towerDistance], [machineWidth, machineHeight * 0.25, towerDistance]],
+        [[0, machineHeight * 0.75, towerDistance], [machineWidth, machineHeight * 0.75, towerDistance]],
+      ].map(([a, b], i) => (
+        <line key={`rail-${i}`}>
+          <bufferGeometry>
+            <bufferAttribute
+              attach="attributes-position"
+              count={2}
+              array={new Float32Array([a[0], a[1], a[2], b[0], b[1], b[2]])}
+              itemSize={3}
+            />
+          </bufferGeometry>
+          <lineBasicMaterial color="#94a3b8" transparent opacity={0.25} />
+        </line>
+      ))}
     </group>
   );
 }
@@ -771,60 +989,78 @@ function Machine4Axis({ wingSpan: _wingSpan }: { wingSpan: number; foamChord: nu
 function WingSurface({ rootPts, tipPts, color = '#7c3aed' }: { rootPts: THREE.Vector3[]; tipPts: THREE.Vector3[]; color?: string }) {
   const geometryRef = useRef<THREE.BufferGeometry>(null)
 
-  const { positions, count } = useMemo(() => {
+  const { positions, colors, count } = useMemo(() => {
     const n = Math.min(rootPts.length, tipPts.length)
-    if (n < 2) return { positions: new Float32Array(0), count: 0 }
+    if (n < 2) return { positions: new Float32Array(0), colors: new Float32Array(0), count: 0 }
 
-    // Each spanwise segment creates 2 triangles = 6 vertices
-    const verts = new Float32Array((n - 1) * 6 * 3)
-    let offset = 0
+    const baseColor = new THREE.Color(color)
+    const lightColor = new THREE.Color(color).lerp(new THREE.Color('#ffffff'), 0.35)
+    const darkColor = new THREE.Color(color).multiplyScalar(0.6)
+
+    const verts: number[] = []
+    const cols: number[] = []
+    let triCount = 0
+
     for (let i = 0; i < n - 1; i++) {
       const r0 = rootPts[i]
       const r1 = rootPts[i + 1]
       const t0 = tipPts[i]
       const t1 = tipPts[i + 1]
 
-      // 只有当两个端面不重合时（翼展不为0）才渲染面
       if (r0.distanceTo(t0) < 0.1) continue;
 
+      // 计算每个顶点在弦长方向的位置（0=前缘，1=后缘）
+      const ratio = i / (n - 1)
+      const c = baseColor.clone().lerp(darkColor, ratio * 0.5)
+      const cLight = baseColor.clone().lerp(lightColor, ratio * 0.3)
+
       // triangle 1: r0, r1, t0
-      verts[offset++] = r0.x; verts[offset++] = r0.y; verts[offset++] = r0.z
-      verts[offset++] = r1.x; verts[offset++] = r1.y; verts[offset++] = r1.z
-      verts[offset++] = t0.x; verts[offset++] = t0.y; verts[offset++] = t0.z
+      verts.push(r0.x, r0.y, r0.z)
+      verts.push(r1.x, r1.y, r1.z)
+      verts.push(t0.x, t0.y, t0.z)
+      cols.push(c.r, c.g, c.b, cLight.r, cLight.g, cLight.b, c.r, c.g, c.b)
+      triCount++
 
       // triangle 2: t0, r1, t1
-      verts[offset++] = t0.x; verts[offset++] = t0.y; verts[offset++] = t0.z
-      verts[offset++] = r1.x; verts[offset++] = r1.y; verts[offset++] = r1.z
-      verts[offset++] = t1.x; verts[offset++] = t1.y; verts[offset++] = t1.z
+      verts.push(t0.x, t0.y, t0.z)
+      verts.push(r1.x, r1.y, r1.z)
+      verts.push(t1.x, t1.y, t1.z)
+      cols.push(c.r, c.g, c.b, cLight.r, cLight.g, cLight.b, cLight.r, cLight.g, cLight.b)
+      triCount++
     }
 
-    return { positions: verts.slice(0, offset), count: offset / 3 }
-  }, [rootPts, tipPts])
+    return {
+      positions: new Float32Array(verts),
+      colors: new Float32Array(cols),
+      count: triCount * 3
+    }
+  }, [rootPts, tipPts, color])
 
   useEffect(() => {
     const geom = geometryRef.current
     if (!geom) return
     if (positions.length > 0) {
       geom.setAttribute('position', new THREE.BufferAttribute(positions, 3))
+      geom.setAttribute('color', new THREE.BufferAttribute(colors, 3))
       geom.computeVertexNormals()
       geom.computeBoundingSphere()
       geom.computeBoundingBox()
       if (geom.attributes.normal) geom.attributes.normal.needsUpdate = true;
     }
-  }, [positions])
+  }, [positions, colors])
 
   if (count === 0) return null
 
   return (
     <mesh frustumCulled={false}>
       <bufferGeometry ref={geometryRef} />
-      <meshStandardMaterial 
-        color={color} 
-        side={THREE.DoubleSide} 
-        transparent={true} 
-        opacity={0.35}
-        roughness={0.4}
-        metalness={0.6}
+      <meshStandardMaterial
+        vertexColors
+        side={THREE.DoubleSide}
+        transparent
+        opacity={0.75}
+        roughness={0.3}
+        metalness={0.4}
         depthWrite={true}
         depthTest={true}
         polygonOffset
@@ -835,8 +1071,64 @@ function WingSurface({ rootPts, tipPts, color = '#7c3aed' }: { rootPts: THREE.Ve
   );
 }
 
+/** 机翼端面封盖 — 填充根部和尖部截面 */
+function WingEndCap({ points, color }: { points: THREE.Vector3[]; color?: string }) {
+  const geometryRef = useRef<THREE.BufferGeometry>(null)
+  const { positions, count } = useMemo(() => {
+    if (points.length < 3) return { positions: new Float32Array(0), count: 0 }
+    
+    // 计算中心点
+    const centroid = new THREE.Vector3()
+    points.forEach(p => centroid.add(p))
+    centroid.divideScalar(points.length)
+    
+    const verts: number[] = []
+    // 从中心点到连续边缘点组成三角形扇
+    for (let i = 0; i < points.length; i++) {
+      const next = (i + 1) % points.length
+      verts.push(centroid.x, centroid.y, centroid.z)
+      verts.push(points[i].x, points[i].y, points[i].z)
+      verts.push(points[next].x, points[next].y, points[next].z)
+    }
+    
+    return {
+      positions: new Float32Array(verts),
+      count: verts.length / 3
+    }
+  }, [points])
+
+  useEffect(() => {
+    const geom = geometryRef.current
+    if (!geom) return
+    if (positions.length > 0) {
+      geom.setAttribute('position', new THREE.BufferAttribute(positions, 3))
+      geom.computeVertexNormals()
+      geom.computeBoundingSphere()
+    }
+  }, [positions])
+
+  if (count === 0) return null
+
+  return (
+    <mesh frustumCulled={false}>
+      <bufferGeometry ref={geometryRef} />
+      <meshStandardMaterial
+        color={color || '#ffffff'}
+        side={THREE.DoubleSide}
+        transparent
+        opacity={0.85}
+        roughness={0.3}
+        metalness={0.2}
+        polygonOffset
+        polygonOffsetFactor={-1}
+        polygonOffsetUnits={-1}
+      />
+    </mesh>
+  )
+}
+
 // Axes helper: draws X (red), Y (green), Z (blue) arrows and labels positive directions
-function Axes({ size = 200 }: { size?: number }) {
+export function Axes({ size = 200 }: { size?: number }) {
   const s = size
   // line data for axes
   const xVerts = new Float32Array([0, 0, 0, s, 0, 0])
@@ -851,13 +1143,13 @@ function Axes({ size = 200 }: { size?: number }) {
           {/* @ts-ignore */}
           <bufferAttribute attach="attributes-position" count={2} array={xVerts} itemSize={3} />
         </bufferGeometry>
-        <lineBasicMaterial color="#ff4444" linewidth={2} />
+        <lineBasicMaterial color="#ff4444" transparent opacity={0.4} linewidth={1} />
       </line>
       <mesh position={[s, 0, 0]} rotation={[0, 0, -Math.PI / 2]}> 
-        <coneGeometry args={[4, 10, 12]} />
-        <meshStandardMaterial color="#ff4444" />
+        <coneGeometry args={[3, 8, 12]} />
+        <meshStandardMaterial color="#ff4444" transparent opacity={0.5} />
       </mesh>
-      <Text position={[s + 10, 0, 0]} fontSize={12} color="#ff4444">+X</Text>
+      <Text position={[s + 10, 0, 0]} fontSize={12} color="#ff4444" fillOpacity={0.5}>+X</Text>
 
       {/* Y axis */}
       <line>
@@ -865,13 +1157,13 @@ function Axes({ size = 200 }: { size?: number }) {
           {/* @ts-ignore */}
           <bufferAttribute attach="attributes-position" count={2} array={yVerts} itemSize={3} />
         </bufferGeometry>
-        <lineBasicMaterial color="#22c55e" linewidth={2} />
+        <lineBasicMaterial color="#22c55e" transparent opacity={0.4} linewidth={1} />
       </line>
       <mesh position={[0, s, 0]} rotation={[0, 0, 0]}> 
-        <coneGeometry args={[4, 10, 12]} />
-        <meshStandardMaterial color="#22c55e" />
+        <coneGeometry args={[3, 8, 12]} />
+        <meshStandardMaterial color="#22c55e" transparent opacity={0.5} />
       </mesh>
-      <Text position={[0, s + 10, 0]} fontSize={12} color="#22c55e">+Y</Text>
+      <Text position={[0, s + 10, 0]} fontSize={12} color="#22c55e" fillOpacity={0.5}>+Y</Text>
 
       {/* Z axis */}
       <line>
@@ -879,13 +1171,13 @@ function Axes({ size = 200 }: { size?: number }) {
           {/* @ts-ignore */}
           <bufferAttribute attach="attributes-position" count={2} array={zVerts} itemSize={3} />
         </bufferGeometry>
-        <lineBasicMaterial color="#3b82f6" linewidth={2} />
+        <lineBasicMaterial color="#3b82f6" transparent opacity={0.4} linewidth={1} />
       </line>
       <mesh position={[0, 0, s]} rotation={[Math.PI / 2, 0, 0]}> 
-        <coneGeometry args={[4, 10, 12]} />
-        <meshStandardMaterial color="#3b82f6" />
+        <coneGeometry args={[3, 8, 12]} />
+        <meshStandardMaterial color="#3b82f6" transparent opacity={0.5} />
       </mesh>
-      <Text position={[0, 0, s + 10]} fontSize={12} color="#3b82f6">+Z</Text>
+      <Text position={[0, 0, s + 10]} fontSize={12} color="#3b82f6" fillOpacity={0.5}>+Z</Text>
     </group>
   )
 }

@@ -1,5 +1,5 @@
 import React, { useRef } from 'react';
-import { TextField, RadioGroup, FormControlLabel, Radio, Box, Checkbox, Typography, Button, Paper, Stack, Divider, Alert } from '@mui/material';
+import { TextField, Box, Typography, Button, Paper, Stack, Alert, ToggleButtonGroup, ToggleButton } from '@mui/material';
 import { useWing } from '../../hooks/useWing';
 import { useRequiredFoamHeight } from '../../hooks/useRequiredFoamHeight';
 import { defaultModel } from '../../types/wing.model';
@@ -52,31 +52,19 @@ export default function BasicParams() {
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
       {/* 所需泡沫高度提示 */}
-      <Alert 
+      <Alert
         severity={foamHeightInfo.isAdequate ? 'info' : 'warning'}
-        sx={{ 
+        sx={{
           bgcolor: foamHeightInfo.isAdequate ? 'design.skyBg' : 'design.redBg',
           borderColor: foamHeightInfo.isAdequate ? 'design.skyBorder' : 'design.redBorder',
-          color: foamHeightInfo.isAdequate ? 'design.sky' : 'design.red'
+          color: foamHeightInfo.isAdequate ? 'design.sky' : 'design.red',
+          py: 0.5,
         }}
       >
-        <Box>
-          <Typography variant="subtitle2" sx={{ fontWeight: 'bold', mb: 0.5 }}>
-            所需泡沫块高度
-          </Typography>
-          <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1, fontSize: '0.875rem' }}>
-            <Typography>根部厚度: <strong>{foamHeightInfo.rootMax.toFixed(1)}</strong> mm</Typography>
-            <Typography>尖部厚度: <strong>{foamHeightInfo.tipMax.toFixed(1)}</strong> mm</Typography>
-            <Typography sx={{ gridColumn: '1 / -1', color: foamHeightInfo.isAdequate ? 'design.sky' : 'design.red', fontWeight: 'bold' }}>
-              ✓ 最小要求: <strong>{foamHeightInfo.required.toFixed(1)}</strong> mm | 当前设置: <strong>{model.foamThickness.toFixed(1)}</strong> mm
-            </Typography>
-          </Box>
-          {foamHeightInfo.warning && (
-            <Typography variant="caption" sx={{ display: 'block', mt: 1, color: 'design.red' }}>
-              {foamHeightInfo.warning}
-            </Typography>
-          )}
-        </Box>
+        <Typography variant="caption">
+          所需泡沫高度: <strong>{foamHeightInfo.required.toFixed(1)}</strong> mm &nbsp;|&nbsp; 当前: <strong>{model.foamThickness.toFixed(1)}</strong> mm
+          {!foamHeightInfo.isAdequate && ` — ${foamHeightInfo.warning}`}
+        </Typography>
       </Alert>
 
       {/* 1. 模型基本属性 */}
@@ -91,23 +79,91 @@ export default function BasicParams() {
           sx={{ mb: 3, '& .MuiInputBase-input': { color: 'design.text', fontWeight: 'bold' } }} 
         />
         
-        <SliderTextField label="全翼展" name="wingSpan" value={model.wingSpan} min={0} max={2500} unit="mm" onChange={handleSlider} />
-        <SliderTextField label="前缘后掠" name="leadingEdgeSweep" value={model.leadingEdgeSweep} min={-500} max={500} unit="mm" onChange={handleSlider} />
-        <SliderTextField label="整体扭转 (Washout)" name="washout" value={model.washout} min={-30} max={30} step={0.1} unit="deg" onChange={handleSlider} helperText="负值鼻下" />
+        <SliderTextField label="全翼展 (半翼单侧)" name="wingSpan" value={model.wingSpan} min={0} max={2500} unit="mm" onChange={handleSlider} />
+        <SliderTextField label="前缘后掠 (LE Sweep)" name="leadingEdgeSweep" value={model.leadingEdgeSweep} min={-500} max={500} unit="mm" onChange={handleSlider} />
+        <SliderTextField label="后缘后掠 (TE Sweep)" name="trailingEdgeSweep" value={model.trailingEdgeSweep} min={-500} max={500} unit="mm" onChange={handleSlider} />
+        <SliderTextField label="整体扭转 (Washout)" name="washout" value={model.washout} min={-30} max={30} step={0.1} unit="deg" onChange={handleSlider} />
+        <SliderTextField label="上反角 (Dihedral)" name="dihedral" value={model.dihedral} min={-45} max={45} step={0.5} unit="deg" onChange={handleSlider} />
       </Box>
 
       {/* 2. 变换与单位 */}
       <Paper sx={{ p: 2, bgcolor: 'design.skyBg', border: '1px solid design.skyBorder', borderRadius: 2 }}>
-        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
-          <FormControlLabel control={<Checkbox name="flipZ" checked={!!model.flipZ} onChange={handle} size="small" />} label={<Typography variant="caption" sx={{ color: 'design.sky' }}>换根尖部 (Flip Z)</Typography>} />
-          <FormControlLabel control={<Checkbox name="mirrorX" checked={!!model.mirrorX} onChange={handle} size="small" />} label={<Typography variant="caption" sx={{ color: 'design.sky' }}>左右镜像 (Mirror X)</Typography>} />
-          <FormControlLabel control={<Checkbox name="mirrorY" checked={!!model.mirrorY} onChange={handle} size="small" />} label={<Typography variant="caption" sx={{ color: 'design.sky' }}>上下镜像 (Mirror Y)</Typography>} />
+        <Typography variant="subtitle2" sx={{ color: 'design.sky', mb: 1.5, fontWeight: 'bold', fontSize: '0.8rem' }}>
+          镜像变换
+        </Typography>
+        <ToggleButtonGroup
+          value={[]}
+          exclusive
+          size="small"
+          sx={{
+            display: 'flex',
+            flexWrap: 'wrap',
+            gap: 0.5,
+            mb: 2,
+            '& .MuiToggleButton-root': {
+              border: '1px solid',
+              borderColor: 'design.skyBorder',
+              color: 'design.slate',
+              textTransform: 'none',
+              px: 1.5,
+              py: 0.5,
+              fontSize: '0.75rem',
+              borderRadius: '6px !important',
+              '&.Mui-selected': {
+                color: 'design.sky',
+                bgcolor: 'rgba(56,189,248,0.2)',
+                borderColor: 'design.sky',
+              },
+            },
+          }}
+        >
+          <ToggleButton
+            value="mirrorX"
+            selected={!!model.mirrorX}
+            onChange={() => setModel({ ...model, mirrorX: !model.mirrorX })}
+          >
+            左右镜像 (Mirror X)
+          </ToggleButton>
+          <ToggleButton
+            value="mirrorY"
+            selected={!!model.mirrorY}
+            onChange={() => setModel({ ...model, mirrorY: !model.mirrorY })}
+          >
+            上下镜像 (Mirror Y)
+          </ToggleButton>
+        </ToggleButtonGroup>
+
+        <Box sx={{ borderTop: '1px solid rgba(255,255,255,0.08)', pt: 1.5 }}>
+          <Typography variant="subtitle2" sx={{ color: 'design.sky', mb: 1, fontWeight: 'bold', fontSize: '0.8rem' }}>
+            单位
+          </Typography>
+          <ToggleButtonGroup
+            value={model.unit}
+            exclusive
+            size="small"
+            onChange={(_, val) => val && setModel({ ...model, unit: val })}
+            sx={{
+              '& .MuiToggleButton-root': {
+                border: '1px solid',
+                borderColor: 'design.skyBorder',
+                color: 'design.slate',
+                textTransform: 'none',
+                px: 2,
+                py: 0.5,
+                fontSize: '0.75rem',
+                borderRadius: '6px !important',
+                '&.Mui-selected': {
+                  color: 'design.sky',
+                  bgcolor: 'rgba(56,189,248,0.2)',
+                  borderColor: 'design.sky',
+                },
+              },
+            }}
+          >
+            <ToggleButton value="mm">毫米 (mm)</ToggleButton>
+            <ToggleButton value="inch">英寸 (inch)</ToggleButton>
+          </ToggleButtonGroup>
         </Box>
-        <Divider sx={{ my: 1.5, opacity: 0.1 }} />
-        <RadioGroup row name="unit" value={model.unit} onChange={handle}>
-          <FormControlLabel value="mm" control={<Radio size="small" />} label={<Typography variant="caption">毫米 (mm)</Typography>} />
-          <FormControlLabel value="inch" control={<Radio size="small" />} label={<Typography variant="caption">英寸 (inch)</Typography>} />
-        </RadioGroup>
       </Paper>
 
       {/* 3. 配置存档管理 (原 ConfigManager) */}
@@ -142,9 +198,6 @@ export default function BasicParams() {
           </Button>
           <input type="file" accept=".json" ref={fileInputRef} style={{ display: 'none' }} onChange={handleImport} />
         </Stack>
-        <Typography variant="caption" sx={{ color: 'design.slateDark', mt: 1.5, display: 'block', fontSize: '0.65rem' }}>
-          * 提示：您的设计会自动实时保存在浏览器中项。
-        </Typography>
       </Box>
     </Box>
   );

@@ -183,9 +183,7 @@ const PositionDisplay: FC = () => {
     <Box>
       <Box display="flex" justifyContent="space-between" alignItems="center" mb={1}>
         <Box display="flex" alignItems="center" gap={1}>
-          <Typography variant="subtitle2" sx={{ color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 1 }}>
-            Real-time Position
-          </Typography>
+          
           <Box sx={{ 
             px: 1, py: 0.2, borderRadius: 0.5, 
             bgcolor: 'rgba(255,255,255,0.05)', 
@@ -196,137 +194,7 @@ const PositionDisplay: FC = () => {
             </Typography>
           </Box>
         </Box>
-        <Box display="flex" gap={1}>
-          <Button size="small" variant="contained" color="warning" onClick={() => serialService.sendRaw('$X\n')}>
-            解锁
-          </Button>
-          <Button size="small" variant="contained" color="primary" onClick={handleSetZero}>
-            全轴归零
-          </Button>
-
-          <Box display="flex" sx={{ 
-            borderRadius: 1, 
-            overflow: 'hidden',
-            border: isHoming ? '1px solid rgba(34, 197, 94, 0.5)' : '1px solid rgba(239, 68, 68, 0.4)',
-            bgcolor: isHoming ? 'rgba(34, 197, 94, 0.1)' : 'rgba(239, 68, 68, 0.1)',
-            transition: 'all 0.3s ease'
-          }}>
-            {!isHoming ? (
-              <Box display="flex">
-                <Button 
-                  size="small" 
-                  variant="text" 
-                  color="error" 
-                  onClick={() => startHoming(['X', 'Y', 'U', 'Z'])}
-                  sx={{ 
-                    fontWeight: 'bold', 
-                    fontSize: '0.75rem',
-                    px: 1,
-                    '&:hover': { bgcolor: 'rgba(239, 68, 68, 0.2)' }
-                  }}
-                >
-                  暴力归零
-                </Button>
-                <Box sx={{ width: '1px', bgcolor: 'rgba(239, 68, 68, 0.2)', my: 0.5 }} />
-                <Button 
-                  size="small" 
-                  variant="text" 
-                  sx={{ 
-                    color: '#fbbf24', 
-                    fontWeight: 'bold', 
-                    fontSize: '0.75rem',
-                    px: 1,
-                    '&:hover': { bgcolor: 'rgba(251, 191, 36, 0.1)' }
-                  }}
-                  onClick={handleRetractionHoming}
-                >
-                  撤回归零
-                </Button>
-              </Box>
-            ) : (
-              <Button 
-                size="small" 
-                variant="text" 
-                color="success" 
-                onClick={async () => {
-                  await serialService.stopAndSetZero()
-                  setIsHoming(false)
-                }}
-                sx={{ 
-                  fontWeight: 'bold', 
-                  fontSize: '0.75rem',
-                  px: 1.5,
-                  animation: 'pulse 2s infinite',
-                  '@keyframes pulse': {
-                    '0%': { opacity: 1 },
-                    '50%': { opacity: 0.5 },
-                    '100%': { opacity: 1 }
-                  },
-                  '&:hover': { bgcolor: 'rgba(34, 197, 94, 0.2)' }
-                }}
-              >
-                全部停止
-              </Button>
-            )}
-            <Box sx={{ width: '1px', bgcolor: isHoming ? 'rgba(34, 197, 94, 0.3)' : 'rgba(239, 68, 68, 0.3)', my: 0.5 }} />
-            {['X', 'Y', 'U', 'Z'].map(ax => {
-              const isSearching = homingAxes.includes(ax);
-              return (
-                <Button
-                  key={ax}
-                  size="small"
-                  variant="text"
-                  onClick={() => {
-                    if (!isHoming) {
-                      startHoming([ax])
-                    } else if (isSearching) {
-                      handleAxisComplete(ax)
-                    }
-                  }}
-                  sx={{ 
-                    minWidth: 32, 
-                    p: 0, 
-                    fontSize: '0.7rem',
-                    fontWeight: isSearching ? 'bold' : 'normal',
-                    color: isHoming ? (isSearching ? '#f87171' : '#4ade80') : '#f87171',
-                    bgcolor: isHoming && !isSearching ? 'rgba(34, 197, 94, 0.2)' : 'transparent',
-                    '&:hover': { bgcolor: isHoming && !isSearching ? 'rgba(34, 197, 94, 0.3)' : 'rgba(239, 68, 68, 0.2)' }
-                  }}
-                >
-                  {ax}
-                </Button>
-              )
-            })}
-          </Box>
-          
-          <Button 
-            size="small" 
-            variant="outlined" 
-            sx={{ color: '#38bdf8', borderColor: '#38bdf8' }}
-            onClick={handleMenuClick}
-          >
-            更多工具
-          </Button>
-          <Menu anchorEl={anchorEl} open={Boolean(anchorEl)} onClose={() => handleMenuClose()}>
-            {/* 用户提到的 G1 X0 Y0... 效果通常是回到原点 */}
-            <MenuItem onClick={() => handleMenuClose(`G1 X0 Y0 Z0 U0 F200`)}>回到零点 (Move to 0)</MenuItem>
-            <MenuItem onClick={() => handleMenuClose('$H')}>硬件回零 ($H)</MenuItem>
-            <MenuItem onClick={() => handleMenuClose('$#')}>查看偏置 ($#)</MenuItem>
-            <MenuItem onClick={() => handleMenuClose('$G')}>查看状态 ($G)</MenuItem>
-            <MenuItem onClick={() => handleMenuClose('M3 S1000')}>开启热丝 (M3)</MenuItem>
-            <MenuItem onClick={() => handleMenuClose('M5')}>关闭热丝 (M5)</MenuItem>
-          </Menu>
-        </Box>
-        <Box display="flex" gap={1}>
-          <Button 
-            size="small" 
-            variant="outlined" 
-            sx={{ color: '#94a3b8', borderColor: '#334155' }}
-            onClick={() => setTargetPos({ x: pos.x, y: pos.y, u: pos.u, z: pos.z })}
-          >
-            同步当前
-          </Button>
-        </Box>
+        
       </Box>
       
       <Box display="flex" gap={1} alignItems="stretch">

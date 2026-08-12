@@ -19,12 +19,19 @@ export interface WingModel {
   rootAirfoil: string;                  // 根部翼型文件名，如 "naca2412.dat"
   tipAirfoil: string;                   // 尖部翼型文件名
 
+  // ========== NACA 4-digit 翼型生成器 ==========
+  useNacaGenerator: boolean;            // 是否启用 NACA 4-digit 生成器（替代DAT文件）
+  nacaDigitsRoot: string;               // 根部 NACA 4位数字，如 "2412"
+  nacaDigitsTip: string;                // 尖部 NACA 4位数字，如 "2412"
+
   // ========== 泡沫与加工 ==========
   foamChord: number;                    // 泡沫块弦向长度（必须 ≥ 根弦 + 浪费量）
   foamThickness: number;    
   foamLength:number;            // 泡沫块厚度（决定能否切 BOTH
   trailingEdgeLimit: number;            // 尾缘最小厚度（mm），用于过切补偿
   leadingEdgeSweep: number;             // 前缘后掠量（mm），原 Python 叫 sweep
+  trailingEdgeSweep: number;            // 后缘后掠量（mm），独立控制后缘位置
+  dihedral: number;                     // 上反角（度），正值为上反，负值为下反，用于设计记录与3D预览
 
   // ========== 机床设置 ==========
   feedrate: number;                     // 进给速度 F 值
@@ -90,6 +97,24 @@ export interface WingModel {
 
   /** 安全高度（mm），快速移动时的 Z/U 高度，防止撞泡沫 */
   safeHeight: number;
+
+  // ========== 碳杆配置 ==========
+  /** 是否启用碳杆 */
+  carbonRodEnabled: boolean;
+  /** 碳杆直径 (mm) */
+  carbonRodDiameter: number;
+  /** 碳杆位置 (占弦长百分比，从前缘起算) */
+  carbonRodPosition: number;
+  /** 碳杆数量 (1 或 2) */
+  carbonRodCount: number;
+
+  // ========== 分段配置 ==========
+  /** 是否启用分段切割 */
+  segmentEnabled: boolean;
+  /** 分段数量 */
+  segmentCount: number;
+  /** 分段间距 (mm) */
+  segmentGap: number;
 }
 
 // 默认值（直接复制粘贴就行）
@@ -105,12 +130,17 @@ export const defaultModel: WingModel = {
   foamRotation: 0,
   rootAirfoil: 'E334.DAT',
   tipAirfoil: 'E334.DAT',
+  useNacaGenerator: false,
+  nacaDigitsRoot: '2412',
+  nacaDigitsTip: '2412',
   washout: 0,
   foamChord: 500,
   foamLength:250,
   foamThickness: 60,
   trailingEdgeLimit: 3,
   leadingEdgeSweep: 20,
+  trailingEdgeSweep: 0,
+  dihedral: 0,
   feedrate: 200,
   gantryDistance: 1200,         // 必须加！原 Python 的 carriage
   xySide: 'right',
@@ -141,4 +171,15 @@ export const defaultModel: WingModel = {
   flipZ: false,
   mirrorX: false,
   mirrorY: false,
+
+  // 碳杆配置默认值
+  carbonRodEnabled: false,
+  carbonRodDiameter: 6,
+  carbonRodPosition: 50,
+  carbonRodCount: 1,
+
+  // 分段配置默认值
+  segmentEnabled: false,
+  segmentCount: 2,
+  segmentGap: 5,
 };

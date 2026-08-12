@@ -2,27 +2,56 @@ import React, { useState } from 'react';
 import { Box, Tabs, Tab, Tooltip } from '@mui/material';
 import DesignServicesIcon from '@mui/icons-material/DesignServices';
 import ContentCutIcon from '@mui/icons-material/ContentCut';
+import SettingsIcon from '@mui/icons-material/Settings';
+import AutoFixHighIcon from '@mui/icons-material/AutoFixHigh';
+import AccountTreeIcon from '@mui/icons-material/AccountTree';
+import PanToolIcon from '@mui/icons-material/PanTool';
+import CompareArrowsIcon from '@mui/icons-material/CompareArrows';
+import PrecisionManufacturingIcon from '@mui/icons-material/PrecisionManufacturing';
+import BuildIcon from '@mui/icons-material/Build';
+import StraightenIcon from '@mui/icons-material/Straighten';
+import BarChartIcon from '@mui/icons-material/BarChart';
 import { ThemeProvider } from '@mui/material/styles';
 import theme from './theme';
 import LeftDesignTabs from './components/LeftDesignTabs';
-import ThreePreview from './components/ThreePreview';
-import TwoPreview from './components/TwoPreview';
+import MachineParams from './components/design/MachineParams';
+import DesignPreview from './components/DesignPreview';
 import CuttingConsole from './components/console/CuttingConsole';
 import SerialToolbar from './components/console/SerialToolbar';
 import logo from './assets/FAVICON.PNG';
 import LicenseModal from './components/LicenseModal';
+import FloatingIconBar from './components/FloatingIconBar';
+import type { IconBarItem } from './components/FloatingIconBar';
 
 export default function App() {
-  const [topTab, setTopTab] = useState(0); // 0 设计  1 切割
-  const [designLeftWidth, setDesignLeftWidth] = useState(37); // 设计页左侧比例
+  const [topTab, setTopTab] = useState(0); // 0 机型设置  1 设计  2 控制台
   const [licenseOpen, setLicenseOpen] = useState(false);
+  const [subTab, setSubTab] = useState(0);       // 设计页子项索引
+  const [sectionTab, setSectionTab] = useState(0); // 机床页子项索引
 
-  // 这里的 gcodeState 应该来自切割页面的输入，
+  // 浮动图标条定义
+  const subTabIcons: IconBarItem[] = [
+    { value: 0, label: '基本设计', icon: <AutoFixHighIcon /> },
+    { value: 1, label: '翼根/尖配置', icon: <AccountTreeIcon /> },
+    { value: 2, label: '双翼排布', icon: <CompareArrowsIcon /> },
+    { value: 3, label: '碳杆配置', icon: <BuildIcon /> },
+    { value: 4, label: '分段配置', icon: <ContentCutIcon /> },
+    { value: 5, label: '切割设置', icon: <PanToolIcon /> },
+  ];
+
+  const sectionIcons: IconBarItem[] = [
+    { value: 0, label: '物理机床', icon: <PrecisionManufacturingIcon /> },
+    { value: 1, label: '切割工艺', icon: <BuildIcon /> },
+    { value: 2, label: '行程限制', icon: <StraightenIcon /> },
+    { value: 3, label: '统计概览', icon: <BarChartIcon /> },
+  ];
+
+  // 这里的 gcodeState 应该来自控制台页面的输入，
   // 暂时先定义一个状态，或者之后通过 Context/Redux 连接
   const [gcode, setGcode] = useState<string>('');
   const [currentGcodeLine, setCurrentGcodeLine] = useState(0);
 
-  // 当切换标签页时，轨道平移，设计/切割整页无缝滑动
+  // 当切换标签页时，轨道平移，设计/控制台整页无缝滑动
   const handleTabChange = (_: React.SyntheticEvent, newValue: number) => {
     if (newValue === topTab) return;
     setTopTab(newValue);
@@ -32,37 +61,12 @@ export default function App() {
     setLicenseOpen((open) => !open);
   };
 
-  // 设计页导出：填入对应侧 G-Code 并自动切换到切割页
+  // 设计页导出：填入对应侧 G-Code 并自动切换到控制台页
   const handleExportGcode = (gcode: string) => {
     setGcode(gcode);
     setTopTab(1);
   };
 
-  // 拖动事件处理（泛化：任意页面 + 任意宽度状态）
-  const startDrag = (
-    e: React.MouseEvent,
-    startWidth: number,
-    setWidth: React.Dispatch<React.SetStateAction<number>>
-  ) => {
-    e.preventDefault();
-    document.body.style.cursor = 'col-resize';
-    const startX = e.clientX;
-    const onMouseMove = (moveEvent: MouseEvent) => {
-      const delta = moveEvent.clientX - startX;
-      // 以窗口宽度为基准
-      const winWidth = window.innerWidth;
-      let newLeftWidth = ((startWidth / 100) * winWidth + delta) / winWidth * 100;
-      newLeftWidth = Math.max(20, Math.min(80, newLeftWidth)); // 限制范围
-      setWidth(newLeftWidth);
-    };
-    const onMouseUp = () => {
-      document.body.style.cursor = '';
-      window.removeEventListener('mousemove', onMouseMove);
-      window.removeEventListener('mouseup', onMouseUp);
-    };
-    window.addEventListener('mousemove', onMouseMove);
-    window.addEventListener('mouseup', onMouseUp);
-  };
     return (
       <ThemeProvider theme={theme}>
         <Box sx={{ display: 'flex', height: '100vh', bgcolor: '#0a0a0a', overflow: 'hidden' }}>
@@ -122,10 +126,13 @@ export default function App() {
                 },
               }}
             >
+              <Tooltip title="机型设置" placement="right" arrow>
+                <Tab icon={<SettingsIcon fontSize="small" />} />
+              </Tooltip>
               <Tooltip title="设计" placement="right" arrow>
                 <Tab icon={<DesignServicesIcon fontSize="small" />} />
               </Tooltip>
-              <Tooltip title="切割" placement="right" arrow>
+              <Tooltip title="控制台" placement="right" arrow>
                 <Tab icon={<ContentCutIcon fontSize="small" />} />
               </Tooltip>
             </Tabs>
@@ -157,33 +164,32 @@ export default function App() {
                 width="200%"
                 flexShrink={0}
                 sx={{
-                  transform: topTab === 0 ? 'translateX(0)' : 'translateX(-50%)',
+                  transform: topTab >= 2 ? 'translateX(-50%)' : 'translateX(0)',
                   // 强非线性：快速起步 + 平滑减速（惯性滑动感）
                   transition: 'transform 0.38s cubic-bezier(0.16, 1, 0.3, 1)',
                 }}
               >
-                {/* ===== 设计页 ===== */}
+                {/* ===== 机型设置/设计页：统一布局，仅右侧内容不同 ===== */}
                 <Box display="flex" width="50%" height="100%" flexShrink={0} overflow="hidden">
-                  {/* 左侧参数区：设计菜单+数据面板 */}
-                  <Box width={`${designLeftWidth}%`} minWidth={280} display="flex" flexDirection="column" bgcolor="#121212">
-                    <LeftDesignTabs onExportGcode={handleExportGcode} />
+                  {/* 左侧：3D预览（含可呼出的2D视图）+ 浮动图标条 */}
+                  <Box flex={7} minWidth={240} p={1.5} display="flex" flexDirection="column" height="100%" minHeight={0} position="relative">
+                    <DesignPreview />
+                    <FloatingIconBar
+                      items={topTab === 0 ? sectionIcons : subTabIcons}
+                      value={topTab === 0 ? sectionTab : subTab}
+                      onChange={topTab === 0 ? setSectionTab : setSubTab}
+                    />
                   </Box>
-
-                  {/* 拉手分隔条 */}
-                  <Splitter onMouseDown={(e) => startDrag(e, designLeftWidth, setDesignLeftWidth)} />
-
-                  {/* 右侧预览区：2D/3D视图 */}
-                  <Box flex={1} minWidth={0} p={2} display="flex" flexDirection="column" height="100%" minHeight={0}>
-                    <Box flex={0.5} minHeight={0}>
-                      <TwoPreview />
-                    </Box>
-                    <Box flex={1} minHeight={0}>
-                      <ThreePreview />
-                    </Box>
+                  {/* 右侧参数面板（30%） */}
+                  <Box flex={3} minWidth={360} display="flex" flexDirection="column" bgcolor="#121212" borderLeft="1px solid #2e2e2e">
+                    {topTab === 0
+                      ? <MachineParams sectionTab={sectionTab} onSectionTabChange={setSectionTab} />
+                      : <LeftDesignTabs onExportGcode={handleExportGcode} subTab={subTab} onSubTabChange={setSubTab} />
+                    }
                   </Box>
                 </Box>
 
-                {/* ===== 切割页 ===== */}
+                {/* ===== 控制台页 ===== */}
                 <Box width="50%" height="100%" flexShrink={0} overflow="hidden">
                   <CuttingConsole
                     gcode={gcode}
@@ -198,46 +204,5 @@ export default function App() {
         </Box>
         <LicenseModal open={licenseOpen} onClose={() => setLicenseOpen(false)} />
       </ThemeProvider>
-  );
-}
-
-/** 拉手分隔条（灰色，垂直居中三个点） */
-function Splitter({ onMouseDown }: { onMouseDown: (e: React.MouseEvent) => void }) {
-  return (
-    <Box
-      sx={{
-        width: '12px',
-        cursor: 'col-resize',
-        background: '#1e1e1e',
-        borderLeft: '1px solid #2e2e2e',
-        borderRight: '1px solid #2e2e2e',
-        zIndex: 10,
-        transition: 'all 0.2s',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        userSelect: 'none',
-        flexShrink: 0,
-      }}
-      onMouseDown={onMouseDown}
-    >
-      <Box
-        className="drag-dots"
-        sx={{
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '4px',
-          opacity: 0.5,
-          transition: 'opacity 0.2s',
-        }}
-      >
-        {[1, 2, 3].map((i) => (
-          <Box
-            key={i}
-            sx={{ width: '4px', height: '4px', borderRadius: '50%', bgcolor: '#737373' }}
-          />
-        ))}
-      </Box>
-    </Box>
   );
 }

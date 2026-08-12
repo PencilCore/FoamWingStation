@@ -1,4 +1,4 @@
-import { loadAirfoil } from './airfoilParser';
+import { loadAirfoil, generateNaca4Digit } from './airfoilParser';
 import type { WingModel } from '../types/wing.model';
 
 export interface AirfoilPoint { x: number; y: number }
@@ -17,25 +17,48 @@ export async function airfoilPointsGenerator(model: WingModel): Promise<Generate
   const {
     rootAirfoil, tipAirfoil, rootChord, tipChord,
     rootRotation, tipRotation, rootOffsetX, rootOffsetY, tipOffsetX, tipOffsetY,
-    rootThickness, tipThickness
+    rootThickness, tipThickness, useNacaGenerator, nacaDigitsRoot, nacaDigitsTip,
+    leadingEdgeSweep, trailingEdgeSweep
   } = model;
 
+  // 加载或生成翼型原始点
+  let rPromise: Promise<AirfoilPoint[]>;
+  let tPromise: Promise<AirfoilPoint[]>;
 
-  // 加载翼型原始点（带缓存）
-  let rPromise = cacheRef.get(rootAirfoil);
-  if (!rPromise) {
-    rPromise = loadAirfoil(rootAirfoil);
-    cacheRef.set(rootAirfoil, rPromise);
-  }
-  let tPromise = cacheRef.get(tipAirfoil);
-  if (!tPromise) {
-    tPromise = loadAirfoil(tipAirfoil);
-    cacheRef.set(tipAirfoil, tPromise);
+  if (useNacaGenerator) {
+    // NACA 4-digit 生成模式（同步生成，包装为Promise保持接口一致）
+    const rKey = `NACA:${nacaDigitsRoot}`;
+    const tKey = `NACA:${nacaDigitsTip}`;
+    rPromise = cacheRef.get(rKey) || Promise.resolve(generateNaca4Digit(nacaDigitsRoot));
+    tPromise = cacheRef.get(tKey) || Promise.resolve(generateNaca4Digit(nacaDigitsTip));
+    if (!cacheRef.has(rKey)) cacheRef.set(rKey, rPromise);
+    if (!cacheRef.has(tKey)) cacheRef.set(tKey, tPromise);
+  } else {
+    // DAT 文件加载模式
+    rPromise = cacheRef.get(rootAirfoil);
+    if (!rPromise) {
+      rPromise = loadAirfoil(rootAirfoil);
+      cacheRef.set(rootAirfoil, rPromise);
+    }
+    tPromise = cacheRef.get(tipAirfoil);
+    if (!tPromise) {
+      tPromise = loadAirfoil(tipAirfoil);
+      cacheRef.set(tipAirfoil, tPromise);
+    }
   }
   const [rRaw, tRaw] = await Promise.all([rPromise, tPromise]);
 
   // 变换算法（与 useGenerateAirfoilPoints 保持一致）
-  const transform = (pts: AirfoilPoint[], chord: number, rotationDeg: number, offsetX = 0, offsetY = 0, thicknessPercent = 100) => {
+  // 新增 teSweepExtra 参数：后缘额外X偏移，用于独立控制后缘后掠（trailing edge sweep）
+  const transform = (
+    pts: AirfoilPoint[], 
+    chord: number, 
+    rotationDeg: number, 
+    offsetX = 0, 
+    offsetY = 0, 
+    thicknessPercent = 100,
+    teSweepExtra: number = 0
+  ) => {
     if (!pts || pts.length === 0) return { le: { x: 0, y: 0 }, points: [] as AirfoilPoint[] };
     const lePoint = pts.find(p => Math.abs(p.x) < 0.01) || pts[0];
     const angle = (rotationDeg || 0) * Math.PI / 180;
@@ -45,24 +68,37 @@ export async function airfoilPointsGenerator(model: WingModel): Promise<Generate
     const leY0 = lePoint.y * chord;
     const yScale = (thicknessPercent ?? 100) / 100;
     const points = pts.map(p => {
+      // 归一化x坐标 (0=前缘, 1=后缘)，用于线性插值teSweep
+      const normX = Math.max(0, Math.min(1, p.x));
+      const xTrailingSweep = normX * teSweepExtra;
+
       const dx = p.x * chord - leX0;
       const dy = (p.y * chord - leY0) * yScale;
       const dxr = cos * dx - sin * dy;
       const dyr = sin * dx + cos * dy;
-      const x = leX0 + dxr + offsetX;
+      const x = leX0 + dxr + offsetX + xTrailingSweep;
       const y = leY0 + dyr + offsetY;
       return { x, y };
     });
+    // LE位置（normX≈0）不受 teSweepExtra 影响
     const le = { x: leX0 + offsetX, y: leY0 + offsetY };
     return { le, points };
   };
 
   // 先分别变换
-  let root0 = transform(rRaw, rootChord, rootRotation as number, rootOffsetX || 0, rootOffsetY || 0, rootThickness);
-  // 应用 leadingEdgeSweep 到翼尖 X 坐标，以及应用 washout (整体扭转) 到尖部旋转
-  // 按照惯例，Washout 会使翼尖向下扭转（负值），这里将其叠加上去
+  let root0 = transform(rRaw, rootChord, rootRotation as number, rootOffsetX || 0, rootOffsetY || 0, rootThickness, 0);
+  // 应用 leadingEdgeSweep 到翼尖前缘偏移，trailingEdgeSweep 到后缘额外偏移
+  // 以及应用 washout (整体扭转) 到尖部旋转，按照惯例，Washout 会使翼尖向下扭转（负值）
   const actualTipRotation = (tipRotation as number) + (model.washout || 0);
-  let tip0 = transform(tRaw, tipChord, actualTipRotation, (tipOffsetX || 0) + (model.leadingEdgeSweep || 0), tipOffsetY || 0, tipThickness);
+  let tip0 = transform(
+    tRaw, 
+    tipChord, 
+    actualTipRotation, 
+    (tipOffsetX || 0) + (leadingEdgeSweep || 0), 
+    tipOffsetY || 0, 
+    tipThickness,
+    trailingEdgeSweep || 0
+  );
 
   // --- 插值较小点数的翼型，使两者点数一致 ---
   const nRoot = root0.points.length;

@@ -635,7 +635,7 @@ export default function GCodeInput({ value, onValueChange, currentIndex: externa
     <Box flex={1} display="flex" flexDirection="column" sx={{ height: '100%' }}>
       <Box mb={2} display="flex" justifyContent="space-between" alignItems="center">
         <Box display="flex" alignItems="center" gap={1}>
-          <Typography variant="subtitle2" sx={{ color: '#a3a3a3', textTransform: 'uppercase', letterSpacing: 1 }}>G-Code Editor</Typography>
+          
           <FormControlLabel
             control={
               <Checkbox 

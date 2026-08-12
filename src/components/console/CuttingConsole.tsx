@@ -4,7 +4,7 @@ import JogControls from './JogControls'
 import LogPanel from './LogPanel'
 import PositionDisplay from './PositionDisplay'
 import GcodeSimulator from '../GcodeSimulator'
-import ThreePreview from '../ThreePreview'
+import Gcode3DPreview from '../Gcode3DPreview'
 
 interface CuttingConsoleProps {
   gcode: string;
@@ -17,7 +17,7 @@ export default function CuttingConsole({ gcode, onGcodeChange, currentIndex, onP
   return (
     <Box display="flex" width="100%" height="100%" minWidth={0} bgcolor="#121212" color="#f5f5f5" overflow="hidden">
       {/* 左侧：G-code 编辑器 + 控制台日志（上下排列） */}
-      <Box flex={1.15} minWidth={0} display="flex" flexDirection="column" borderRight="1px solid #2e2e2e">
+      <Box flex={1} minWidth={0} display="flex" flexDirection="column" borderRight="1px solid #2e2e2e">
         <Box flex={1} minHeight={0} p={2} display="flex" flexDirection="column" overflow="hidden">
           <GCodeInput value={gcode} onValueChange={onGcodeChange} currentIndex={currentIndex} />
         </Box>
@@ -26,18 +26,18 @@ export default function CuttingConsole({ gcode, onGcodeChange, currentIndex, onP
         </Box>
       </Box>
 
-      {/* 中间：G-code 2D 预览 + 3D 预览（上下排列） */}
+      {/* 中间：G-code 2D 预览 + 3D 预览（上下排列，播放进度已合并到 3D 视图） */}
       <Box flex={1} minWidth={0} display="flex" flexDirection="column" p={1} gap={1} borderRight="1px solid #2e2e2e">
         <Box flex={0.4} minHeight={0}>
-          <GcodeSimulator gcode={gcode} currentIndex={currentIndex} onProgressChange={onProgressChange} />
+          <GcodeSimulator gcode={gcode} currentIndex={currentIndex} />
         </Box>
         <Box flex={0.6} minHeight={0}>
-          <ThreePreview />
+          <Gcode3DPreview gcode={gcode} currentIndex={currentIndex} onProgressChange={onProgressChange} />
         </Box>
       </Box>
 
-      {/* 右侧：实时位置 + Jog 控制（上下排列），约占 30% */}
-      <Box width="30%" minWidth={320} display="flex" flexDirection="column" overflow="hidden">
+      {/* 右侧：实时位置 + Jog 控制（上下排列） */}
+      <Box flex={1} minWidth={320} display="flex" flexDirection="column" overflow="hidden">
         <Box p={2} borderBottom="1px solid #2e2e2e">
           <PositionDisplay />
         </Box>

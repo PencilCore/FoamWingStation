@@ -22,10 +22,6 @@ export default function WingLayoutConfig() {
         <Typography variant="subtitle2" sx={{ color: 'design.sky', mb: 1, fontWeight: 'bold' }}>
           整体切割偏移 (Coordinate Alignment)
         </Typography>
-        <Typography variant="caption" sx={{ color: 'design.slate', display: 'block', mb: 2 }}>
-           设置机翼中心相对于机床坐标原点 (0,0) 的位置。
-        </Typography>
-
         {/* 翼根偏移控制 */}
         <DirectionalLayout 
           label="翼根偏移 (Root)"
@@ -131,7 +127,6 @@ export default function WingLayoutConfig() {
           max={500}
           unit="mm"
           onChange={handleSlider}
-          helperText={isVert ? "两翼 X 方向微调对齐" : "两翼之间的水平间距"}
         />
 
         <SliderTextField
@@ -142,7 +137,6 @@ export default function WingLayoutConfig() {
           max={500}
           unit="mm"
           onChange={handleSlider}
-          helperText={isVert ? "两翼之间的纵向间距" : "两翼 Y 方向微调对齐"}
         />
       </Box>
     </Box>
