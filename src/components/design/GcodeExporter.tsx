@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { Tabs, Tab, Box, TextField, Alert, Button, Typography } from '@mui/material';
 import { useWing } from '../../hooks/useWing';
 import { generateGcode } from '../../services/gcodeGenerator';
+import { computeGcodeSig } from '../../services/pathEngine';
 
 interface GcodeExporterProps {
   activeTab?: number;
@@ -21,9 +22,10 @@ export default function GcodeExporter({ activeTab }: GcodeExporterProps) {
         console.log('[GcodeExporter] Resolved result:', result);
         setGcode(result);
         
-        // 自动更新 model 中的预览 G-code 数据组
-        if (result.both && JSON.stringify(model.previewGcodeData) !== JSON.stringify(result)) {
-          handleRadioChange('previewGcodeData', result);
+        // 自动更新 model 中的预览 G-code 数据组（附带参数签名，供 3D 预览校验快照是否过期）
+        const snap = { ...result, sig: computeGcodeSig(model) };
+        if (result.both && JSON.stringify(model.previewGcodeData) !== JSON.stringify(snap)) {
+          handleRadioChange('previewGcodeData', snap);
         }
       } catch (error) {
         console.error('[GcodeExporter] Error in generateGcode:', error);

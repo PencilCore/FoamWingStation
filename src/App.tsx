@@ -11,6 +11,7 @@ import PrecisionManufacturingIcon from '@mui/icons-material/PrecisionManufacturi
 import BuildIcon from '@mui/icons-material/Build';
 import StraightenIcon from '@mui/icons-material/Straighten';
 import BarChartIcon from '@mui/icons-material/BarChart';
+import TuneIcon from '@mui/icons-material/Tune';
 import { ThemeProvider } from '@mui/material/styles';
 import theme from './theme';
 import LeftDesignTabs from './components/LeftDesignTabs';
@@ -36,14 +37,15 @@ export default function App() {
     { value: 2, label: '双翼排布', icon: <CompareArrowsIcon /> },
     { value: 3, label: '碳杆配置', icon: <BuildIcon /> },
     { value: 4, label: '分段配置', icon: <ContentCutIcon /> },
-    { value: 5, label: '切割设置', icon: <PanToolIcon /> },
+    { value: 5, label: '切割调校', icon: <PanToolIcon /> },
   ];
 
   const sectionIcons: IconBarItem[] = [
     { value: 0, label: '物理机床', icon: <PrecisionManufacturingIcon /> },
-    { value: 1, label: '切割工艺', icon: <BuildIcon /> },
-    { value: 2, label: '行程限制', icon: <StraightenIcon /> },
-    { value: 3, label: '统计概览', icon: <BarChartIcon /> },
+    { value: 1, label: '视觉调谐', icon: <TuneIcon /> },
+    { value: 2, label: '切割工艺', icon: <BuildIcon /> },
+    { value: 3, label: '行程限制', icon: <StraightenIcon /> },
+    { value: 4, label: '统计概览', icon: <BarChartIcon /> },
   ];
 
   // 这里的 gcodeState 应该来自控制台页面的输入，

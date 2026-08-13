@@ -5,6 +5,7 @@ import {
 } from '@mui/material';
 import { useWing } from '../../hooks/useWing';
 import SliderTextField from './SliderTextField';
+import PlatformOffsetPad from './PlatformOffsetPad';
 
 // ========== 机床预设数据 ==========
 interface MachinePreset {
@@ -17,6 +18,12 @@ interface MachinePreset {
   feedrate: number;
   safeHeight: number;
   foamOffsetZ: number;
+  /** 水平马达沿泡沫长度方向向机器外侧的统一偏移 (mm) */
+  towerOffsetX: number;
+  /** 切割平台沿 X 方向的统一偏移 (mm) */
+  platformOffset: number;
+  /** 切割平台沿 Y 方向的统一偏移 (mm) */
+  platformOffsetY: number;
   xyuvMode: [string, string, string, string];
 }
 
@@ -31,6 +38,9 @@ const MACHINE_PRESETS: Record<string, MachinePreset> = {
     feedrate: 200,
     safeHeight: 50,
     foamOffsetZ: 0,
+    towerOffsetX: 0,
+    platformOffset: 62, // FoamCut Neo：切割平台沿泡沫长度方向（两塔连线）默认偏移 62mm（马达保持原位）
+    platformOffsetY: 0,
     xyuvMode: ['X', 'Y', 'U', 'Z'],
   },
   'FoamCut Pro': {
@@ -43,6 +53,9 @@ const MACHINE_PRESETS: Record<string, MachinePreset> = {
     feedrate: 300,
     safeHeight: 60,
     foamOffsetZ: 0,
+    towerOffsetX: 0,
+    platformOffset: 0,
+    platformOffsetY: 0,
     xyuvMode: ['X', 'Y', 'U', 'Z'],
   },
   'Mini CNC': {
@@ -55,6 +68,9 @@ const MACHINE_PRESETS: Record<string, MachinePreset> = {
     feedrate: 150,
     safeHeight: 30,
     foamOffsetZ: 0,
+    towerOffsetX: 0,
+    platformOffset: 0,
+    platformOffsetY: 0,
     xyuvMode: ['X', 'Y', 'U', 'Z'],
   },
 };
@@ -115,6 +131,9 @@ export default function MachineParams({ sectionTab: externalSectionTab, onSectio
         feedrate: preset.feedrate,
         safeHeight: preset.safeHeight,
         foamOffsetZ: preset.foamOffsetZ,
+        towerOffsetX: preset.towerOffsetX,
+        platformOffset: preset.platformOffset,
+        platformOffsetY: preset.platformOffsetY,
         xyuvMode: preset.xyuvMode,
       });
     }
@@ -174,6 +193,34 @@ export default function MachineParams({ sectionTab: externalSectionTab, onSectio
           ))}
         </Box>
       </Box>
+    </Box>
+  );
+
+  // 视觉调谐面板
+  const VisualPanel = (
+    <Box>
+      <Typography variant="subtitle2" sx={{ color: 'design.sky', mb: 2, fontWeight: 'bold' }}>
+        视觉调谐
+      </Typography>
+
+      <SliderTextField
+        label="水平马达纵向偏移 (Tower Lengthwise Offset)"
+        name="towerOffsetX"
+        value={model.towerOffsetX ?? 0}
+        min={-100}
+        max={100}
+        step={0.5}
+        unit="mm"
+        onChange={handleSlider}
+        helperText="水平马达沿泡沫长度方向向机器外侧偏移；热丝挂点保持原位"
+      />
+
+      <PlatformOffsetPad
+        x={model.platformOffset ?? 0}
+        y={model.platformOffsetY ?? 0}
+        onChange={(px, py) => setModel({ ...model, platformOffset: px, platformOffsetY: py })}
+        helperText="点击/拖拽十字坐标轴同时调整平台偏移 X/Y（FoamCut Neo 默认 X=62）；马达与机架保持原位；偏移反映到 G-code：长度方向(X)并入泡沫定位、宽度方向(Y)进入 X/U 坐标"
+      />
     </Box>
   );
 
@@ -310,6 +357,7 @@ export default function MachineParams({ sectionTab: externalSectionTab, onSectio
   // 侧边栏 Tab 列表
   const sections: SectionDef[] = [
     { label: '物理机床', component: PhysicalPanel },
+    { label: '视觉调谐', component: VisualPanel },
     { label: '切割工艺', component: CuttingPanel },
     { label: '行程限制', component: TravelPanel },
     { label: '统计概览', component: StatsPanel },

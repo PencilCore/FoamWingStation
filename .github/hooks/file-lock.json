@@ -1,0 +1,11 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "type": "command",
+        "command": "node .github/skills/multi-ai-file-lock/scripts/lock-hook.mjs",
+        "timeout": 15
+      }
+    ]
+  }
+}

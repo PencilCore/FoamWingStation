@@ -1,13 +1,16 @@
 // src/components/ThreePreview.tsx
-import { useEffect, useMemo, useState, useRef, useCallback } from 'react'
-import { Canvas } from '@react-three/fiber'
-// 保留 OrbitControls, Grid
-import { OrbitControls, Grid, Text, Line as DreiLine } from '@react-three/drei' 
+import { useEffect, useMemo, useState, useRef, useCallback, memo } from 'react'
+import { Canvas, useFrame } from '@react-three/fiber'
+import { CameraCaptureBridge, CameraCaptureButton } from './CameraCaptureButton'
+import type { CameraCaptureFn } from './CameraCaptureButton'
+// 保留 Text（DreiLine 已随 PreviewHotwire 移除，热丝线改为原生 line + useFrame 更新）
+import { Text } from '@react-three/drei' 
 import { useWing } from '../hooks/useWing'
 import * as THREE from 'three'
 import { useGenerateAirfoilPoints } from '../hooks/useGenerateAirfoilPoints'
 import { ToggleButton, ToggleButtonGroup, Box } from '@mui/material'
-import { calculateWingPath } from '../services/pathEngine'
+import { calculateWingPath, computeGcodeSig } from '../services/pathEngine'
+import { TouchpadOrbitControls } from './TouchpadOrbitControls'
 
 // 彻底干掉 adoptedStyleSheets 报错（加在文件最上面）
 if (typeof document !== 'undefined') {
@@ -15,47 +18,169 @@ if (typeof document !== 'undefined') {
   document.adoptedStyleSheets = document.adoptedStyleSheets || []
 }
 
-/** 从 G-code 字符串解析出 XY 和 UZ 平面路径点 */
-function parseGcodeToPath(gcode: string, axes: string[], gd: number): { root: THREE.Vector3[], tip: THREE.Vector3[] } {
+/**
+ * 从 G-code 字符串解析出 XY 和 UZ 平面路径点。
+ * 解析逻辑与 2D 视图 / 控制台 3D 预览完全一致：
+ *  - 支持 G90/G91 绝对/相对坐标模式
+ *  - 任意含坐标的行均计入路径（不局限于 G0/G1 开头）
+ *  - 未指定的轴沿用上一次的坐标
+ * 额外解析每行真实进给速度（F 值 mm/min → mm/s），得到累计时间数组。
+ */
+function parseGcodeToPath(gcode: string, axes: string[], gd: number, offset = 0): {
+  root: THREE.Vector3[];
+  tip: THREE.Vector3[];
+  timeCum: number[];
+  totalTime: number;
+} {
   const rootPts: THREE.Vector3[] = [];
   const tipPts: THREE.Vector3[] = [];
+  const timeCum: number[] = [];
   const lines = gcode.split('\n');
-  
+  let isRelative = false;
+  let curX = 0, curY = 0, curU = 0, curZ = 0;
+  let prevX = 0, prevY = 0, prevU = 0, prevZ = 0;
+  let curF = 300; // 默认进给 mm/min
+  let cumTime = 0;
+  let first = true;
+
   for (const line of lines) {
-    const t = line.trim();
-    // 匹配 G0 或 G1 指令
-    if (!/^G[01]\b/i.test(t)) continue;
-    
+    const t = line.split(';')[0].trim();
+    if (!t) continue;
+
+    // 进给速度 F（mm/min）——必须在 continue 前解析
+    const fMatch = t.match(/F([\-\d.]+)/i);
+    if (fMatch) curF = parseFloat(fMatch[1]) || curF;
+
+    // G90/G91 切换绝对/相对模式
+    const gMatch = t.match(/G(0|1|90|91)/i);
+    if (gMatch) {
+      const cmd = gMatch[0].toUpperCase();
+      if (cmd === 'G90') isRelative = false;
+      if (cmd === 'G91') isRelative = true;
+    }
+
     const getVal = (axis: string) => {
       const m = t.match(new RegExp(`${axis}([\\-\\d.]+)`, 'i'));
       return m ? parseFloat(m[1]) : NaN;
     };
-    
+
     const x = getVal(axes[0]), y = getVal(axes[1]), u = getVal(axes[2]), z = getVal(axes[3]);
     if (isNaN(x) && isNaN(y) && isNaN(u) && isNaN(z)) continue;
-    
-    // 使用上一个点的坐标作为默认（增量式逻辑简化：用第一个有效点填充）
-    const prevR = rootPts.length > 0 ? rootPts[rootPts.length - 1] : new THREE.Vector3(0, 0, 0);
-    const prevT = tipPts.length > 0 ? tipPts[tipPts.length - 1] : new THREE.Vector3(0, 0, gd);
-    
-    const rx = isNaN(x) ? prevR.x : x;
-    const ry = isNaN(y) ? prevR.y : y;
-    const ux = isNaN(u) ? prevT.x : u;
-    const uz = isNaN(z) ? prevT.y : z;
-    
-    rootPts.push(new THREE.Vector3(rx, ry, 0));
-    tipPts.push(new THREE.Vector3(ux, uz, gd));
+
+    if (isRelative) {
+      if (!isNaN(x)) curX += x;
+      if (!isNaN(y)) curY += y;
+      if (!isNaN(u)) curU += u;
+      if (!isNaN(z)) curZ += z;
+    } else {
+      if (!isNaN(x)) curX = x;
+      if (!isNaN(y)) curY = y;
+      if (!isNaN(u)) curU = u;
+      if (!isNaN(z)) curZ = z;
+    }
+
+    // G-code 的 X/U 是马达指令位置（已反向扣除偏移），热丝挂点 = 指令 + 偏移 = 设计位置
+    rootPts.push(new THREE.Vector3(curX + offset, curY, 0));
+    tipPts.push(new THREE.Vector3(curU + offset, curZ, gd));
+
+    // 真实时间：四轴合成位移 / 进给速度（F mm/min → mm/s）
+    let segTime = 0;
+    if (!first) {
+      const dX = curX - prevX, dY = curY - prevY, dU = curU - prevU, dZ = curZ - prevZ;
+      const segLen = Math.sqrt(dX * dX + dY * dY + dU * dU + dZ * dZ);
+      const vMs = curF / 60;
+      segTime = vMs > 0 ? segLen / vMs : 0;
+    }
+    cumTime += segTime;
+    timeCum.push(cumTime);
+    first = false;
+    prevX = curX; prevY = curY; prevU = curU; prevZ = curZ;
   }
-  return { root: rootPts, tip: tipPts };
+  return { root: rootPts, tip: tipPts, timeCum, totalTime: cumTime };
 }
 
-function FoamBlock({ width, height, offsetX = 0, offsetY = 0 }: { width: number, height: number, offsetX: number, offsetY: number }) {
-  const { model } = useWing()
-  const { wingSpan, foamOffsetZ = 0 } = model
+/** 由累计路程 + 累计时间，反查某时刻对应的路程（线性插值） */
+function distAtTime(cumDist: number[], timeCum: number[], t: number): number {
+  const n = cumDist.length;
+  if (n <= 1) return 0;
+  const totalT = timeCum[n - 1];
+  const cl = Math.max(0, Math.min(t, totalT));
+  let i = 0;
+  while (i < n - 2 && timeCum[i + 1] <= cl) i++;
+  const dt = timeCum[i + 1] - timeCum[i];
+  const frac = dt > 0 ? (cl - timeCum[i]) / dt : 0;
+  return cumDist[i] + (cumDist[i + 1] - cumDist[i]) * frac;
+}
+
+/** 由累计路程 + 累计时间，反查某路程对应的时刻（线性插值） */
+function timeAtDist(cumDist: number[], timeCum: number[], d: number): number {
+  const n = cumDist.length;
+  if (n <= 1) return 0;
+  const totalD = cumDist[n - 1];
+  const cl = Math.max(0, Math.min(d, totalD));
+  let i = 0;
+  while (i < n - 2 && cumDist[i + 1] <= cl) i++;
+  const dd = cumDist[i + 1] - cumDist[i];
+  const frac = dd > 0 ? (cl - cumDist[i]) / dd : 0;
+  return timeCum[i] + (timeCum[i + 1] - timeCum[i]) * frac;
+}
+
+/** 累计路径长度（弧长数组），用于按路程插值 */
+function buildCumulative(path: THREE.Vector3[]): number[] {
+  const cum = [0];
+  for (let i = 1; i < path.length; i++) {
+    cum.push(cum[i - 1] + path[i].distanceTo(path[i - 1]));
+  }
+  return cum;
+}
+
+/** 按累计路程插值取点：在路径段内线性插值，保证动画时间与真实距离成正比（进刀/退刀段不再跳变） */
+function getPointAtDist(path: THREE.Vector3[], cum: number[], d: number, fallback: THREE.Vector3): THREE.Vector3 {
+  if (!path?.length) return fallback.clone();
+  if (path.length === 1) return path[0].clone();
+  const total = cum[cum.length - 1];
+  const clamped = Math.max(0, Math.min(d, total));
+  let idx = 0;
+  while (idx < cum.length - 2 && cum[idx + 1] <= clamped) idx++;
+  const segLen = cum[idx + 1] - cum[idx];
+  const frac = segLen > 0 ? (clamped - cum[idx]) / segLen : 0;
+  return new THREE.Vector3().lerpVectors(path[idx], path[idx + 1], frac);
+}
+
+/**
+ * 默认视角（相对翼面中心 centerTarget 的偏移）。
+ * 在 3D 视图点「📷 复制视角」得到 { position, target, fov }，换算：offset = position - target。
+ * 把 offset 填入 DEFAULT_CAMERA_OFFSET、fov 填入 DEFAULT_CAMERA_FOV，即可把该视角设为默认。
+ * null = 使用自动视角（按翼面尺寸推导）。
+ *
+ * 当前默认视角来自用户复制的视角（2026-08-13）：
+ *   position=[-2052.59, 1272.46, -2317.11]，target=[169.73, 74.54, 334.57]
+ *   → offset = position - target = [-2222.32, 1197.92, -2651.68]，fov = 35
+ * 想改回自动视角：把 DEFAULT_CAMERA_OFFSET 设为 null 即可。
+ */
+const DEFAULT_CAMERA_OFFSET: [number, number, number] | null = [-2222.32, 1197.92, -2651.68];
+const DEFAULT_CAMERA_FOV = 35;
+
+/** 由翼面中心 + 默认偏移计算默认相机位置（未设置偏移时按翼面尺寸自动推导） */
+function defaultCameraPosition(center: THREE.Vector3, foamChord: number, wingSpan: number): [number, number, number] {
+  const maxDim = Math.max(foamChord, wingSpan);
+  return [
+    center.x + (DEFAULT_CAMERA_OFFSET ? DEFAULT_CAMERA_OFFSET[0] : maxDim * 1.2),
+    center.y + (DEFAULT_CAMERA_OFFSET ? DEFAULT_CAMERA_OFFSET[1] : maxDim * 0.8),
+    center.z + (DEFAULT_CAMERA_OFFSET ? DEFAULT_CAMERA_OFFSET[2] : maxDim * 0.6),
+  ];
+}
+
+function FoamBlock({ width, height, offsetX = 0, offsetY = 0, wingSpan = 600, foamOffsetZ = 0, platformOffset = 0 }: {
+  width: number, height: number, offsetX: number, offsetY: number,
+  wingSpan?: number, foamOffsetZ?: number, platformOffset?: number,
+}) {
   
+  // 泡沫包紧翼面：offsetX/offsetY 由翼面边界（已含平台宽度偏移 platformOffsetY）外扩而来，
+  // 因此宽度方向偏移自动跟随翼面；长度方向平台偏移 platformOffset 合并进泡沫定位（与 foamOffsetZ 同效）
   const hx = offsetX + width / 2
   const hy = offsetY + height / 2
-  const hz = foamOffsetZ + wingSpan / 2
+  const hz = foamOffsetZ + wingSpan / 2 + platformOffset
 
   // 生成泡沫材质噪声纹理
   const foamTexture = useMemo(() => {
@@ -117,31 +242,15 @@ function FoamBlock({ width, height, offsetX = 0, offsetY = 0 }: { width: number,
   )
 }
 
-/** 跟随刀头移动的马达模拟盒 — 每塔 X/Y 双马达 + 丝杆 */
-function LiveMotorBox({ viewMode, leftData, rightData, bothData, percent, gantryDistance }: {
-  viewMode: 'left' | 'right' | 'both';
-  leftData: any; rightData: any; bothData?: any;
-  percent: number; gantryDistance: number;
+/**
+ * 双塔马达渲染（纯几何，位置由外部传入）— 每塔 X/Y 双马达 + 丝杆。
+ * 与设计界面（SceneDynamic useFrame 内联马达盒）使用同一套马达，控制台 3D 预览复用本组件。
+ */
+export function TowerMotors({ leftX, leftY, rightX, rightY, gantryDistance, towerOffsetX = 0, machineHeight = 600 }: {
+  leftX: number; leftY: number; rightX: number; rightY: number; gantryDistance: number;
+  towerOffsetX?: number; machineHeight?: number;
 }) {
-  const { model } = useWing()
-  const { machineHeight = 600 } = model
 
-  const getPos = (path: THREE.Vector3[], pct: number) => {
-    if (!path?.length) return { x: 0, y: 0 };
-    const idx = Math.max(0, Math.min(path.length - 1, Math.floor(pct * (path.length - 1))));
-    return { x: path[idx]?.x ?? 0, y: path[idx]?.y ?? 0 };
-  };
-  
-  let leftPos: { x: number, y: number }, rightPos: { x: number, y: number };
-  if (viewMode === 'both' && bothData) {
-    leftPos = getPos(bothData.fullPathRoot, percent / 100);
-    rightPos = getPos(bothData.fullPathTip, percent / 100);
-  } else {
-    const data = viewMode === 'left' ? leftData : rightData;
-    leftPos = getPos(data?.fullPathRoot, percent / 100);
-    rightPos = getPos(data?.fullPathTip, percent / 100);
-  }
-  
   const SCALE = 3;
   const xMotorW = 40 * SCALE, xMotorH = 20 * SCALE, xMotorD = 16 * SCALE;  // X 轴马达：宽扁
   const yMotorW = 24 * SCALE, yMotorH = 36 * SCALE, yMotorD = 16 * SCALE;  // Y 轴马达：窄高
@@ -149,39 +258,44 @@ function LiveMotorBox({ viewMode, leftData, rightData, bothData, percent, gantry
   // X 轴马达顶部在平台下方 yMotorH 距离，与 Y 轴马达保持间距
   const xMotorTopY = PLATFORM_TOP_Y - yMotorH;
   const xMotorCenterY = xMotorTopY - xMotorH / 2;
-  
+  // 水平马达（X/U）相对上方垂直马达（Y/Z，固定 z=0/gantryDistance）的纵向偏移：
+  // towerOffsetX=0 时上下马达在同一竖直平面（对齐）；左塔 z=-towerOffsetX、右塔 z=gd+towerOffsetX
+  // 丝杆与水平马达同 z（底部中心对准底下水平马达中心），热丝挂点保持原位
+  const leftMotorZ = -towerOffsetX;
+  const rightMotorZ = gantryDistance + towerOffsetX;
+
   return (
     <group>
       {/* ===== 左塔 ===== */}
-      {/* 丝杆 — 垂直穿过 X/Y 马达，长度与机台高度一致 */}
-      <mesh position={[leftPos.x, machineHeight / 2, -xMotorD / 2]}>
+      {/* 丝杆 — 垂直穿过 X/Y 马达，长度与机台高度一致；底部中心对准底下 X 马达（水平马达）中心 */}
+      <mesh position={[leftX, machineHeight / 2, leftMotorZ]}>
         <boxGeometry args={[4 * SCALE, machineHeight, 4 * SCALE]} />
         <meshStandardMaterial color="#94a3b8" roughness={0.3} metalness={0.9} />
       </mesh>
-      {/* X 轴马达 — 在平台下方 yMotorH 距离，顶部与 Y 马达保持间距 */}
-      <mesh position={[leftPos.x, xMotorCenterY, -xMotorD / 2]}>
+      {/* X 轴马达（水平）— 沿泡沫长度方向向机器外侧（z 负方向）偏移 */}
+      <mesh position={[leftX, xMotorCenterY, leftMotorZ]}>
         <boxGeometry args={[xMotorW, xMotorH, xMotorD]} />
         <meshStandardMaterial color="#3b82f6" roughness={0.4} metalness={0.7} />
       </mesh>
-      {/* Y 轴马达 — 顶部中心与路径点平齐（点位于马达顶面中心） */}
-      <mesh position={[leftPos.x, leftPos.y - yMotorH / 2, -yMotorD / 2]}>
+      {/* Y 轴马达（上方垂直马达）— 顶面中心与热丝挂点同 y；热丝端点落在其顶面中心；马达保持原位，不随平台移动 */}
+      <mesh position={[leftX, leftY - yMotorH / 2, 0]}>
         <boxGeometry args={[yMotorW, yMotorH, yMotorD]} />
         <meshStandardMaterial color="#60a5fa" roughness={0.4} metalness={0.6} />
       </mesh>
 
       {/* ===== 右塔 ===== */}
-      {/* 丝杆 — 垂直穿过 X/Y 马达 */}
-      <mesh position={[rightPos.x, machineHeight / 2, gantryDistance + xMotorD / 2]}>
+      {/* 丝杆 — 垂直穿过 X/Y 马达；底部中心对准底下 U 马达（水平马达）中心 */}
+      <mesh position={[rightX, machineHeight / 2, rightMotorZ]}>
         <boxGeometry args={[4 * SCALE, machineHeight, 4 * SCALE]} />
         <meshStandardMaterial color="#94a3b8" roughness={0.3} metalness={0.9} />
       </mesh>
-      {/* X 轴马达 — 在平台下方 yMotorH 距离 */}
-      <mesh position={[rightPos.x, xMotorCenterY, gantryDistance + xMotorD / 2]}>
+      {/* U 轴马达（水平）— 沿泡沫长度方向向机器外侧（z 正方向）偏移 */}
+      <mesh position={[rightX, xMotorCenterY, rightMotorZ]}>
         <boxGeometry args={[xMotorW, xMotorH, xMotorD]} />
         <meshStandardMaterial color="#f97316" roughness={0.4} metalness={0.7} />
       </mesh>
-      {/* Y 轴马达 — 顶部中心与路径点平齐 */}
-      <mesh position={[rightPos.x, rightPos.y - yMotorH / 2, gantryDistance + yMotorD / 2]}>
+      {/* Z 轴马达（上方垂直马达）— 顶面中心与热丝挂点同 y；热丝端点落在其顶面中心；马达保持原位，不随平台移动 */}
+      <mesh position={[rightX, rightY - yMotorH / 2, gantryDistance]}>
         <boxGeometry args={[yMotorW, yMotorH, yMotorD]} />
         <meshStandardMaterial color="#fb923c" roughness={0.4} metalness={0.6} />
       </mesh>
@@ -216,14 +330,13 @@ function WingOutline({ points, color = '#2196f3', opacity = 1 }: { points: THREE
   )
 }
 
-function Hotwire({ realPos }: { realPos: { X: number; Y: number; U: number; Z: number } }) {
-  const { model } = useWing();
-  const { gantryDistance = 1200 } = model;
+function Hotwire({ realPos, gantryDistance = 1200 }: { realPos: { X: number; Y: number; U: number; Z: number }; gantryDistance?: number }) {
   
   // 修正 3D 界面坐标同步：
   // 左塔：实时的 X 对应 X 轴，实时的 Y 对应 Y 轴，位于 Z=0
   // 右塔：实时的 Z 对应 X 轴，实时的 U 对应 Y 轴，位于 Z=gantryDistance
   // (之前 UZ 的实时点显示相反，现已对调)
+  // 热丝端点（挂点）落在上方垂直马达的顶面中心：左塔 z=0、右塔 z=gantryDistance
   const left = new THREE.Vector3(realPos.X, realPos.Y, 0);
   const right = new THREE.Vector3(realPos.Z, realPos.U, gantryDistance);
 
@@ -269,14 +382,16 @@ export default function ThreePreview() {
   const generatedAirfoilPoints = useGenerateAirfoilPoints()
   const [basePoints, setBasePoints] = useState<{ root: THREE.Vector3[], tip: THREE.Vector3[] } | null>(null)
   const loadTokenRef = useRef(0)
+  // G-code 解析结果缓存：改无关参数时 previewGcodeData 字符串引用未变 → 跳过重复正则解析
+  const gcodeParseCacheRef = useRef(new Map<string, ReturnType<typeof parseGcodeToPath>>());
   const [realPos, setRealPos] = useState({ X: 0, Y: 0, U: 0, Z: 0 })
-  const [percent, setPercent] = useState(0)
   const [isPlaying, setIsPlaying] = useState(false)
   const startTimeRef = useRef(0)
   const internalDistRef = useRef(0)
   const sliderRef = useRef<HTMLInputElement>(null)
   const progressTextRef = useRef<HTMLSpanElement>(null)
-  const ANIMATION_SPEED_MM_PER_SEC = 100
+  // 播放倍速：默认真实速度的 8 倍，点击切换 16x / 8x
+  const [speedMult, setSpeedMult] = useState(8)
 
   useEffect(() => {
     let active = true
@@ -295,15 +410,19 @@ export default function ThreePreview() {
       } catch (e) { /* ignore */ }
     })()
     return () => { active = false }
-  }, [generatedAirfoilPoints, wingSpan, model.foamOffsetZ])
+    // 只依赖翼型生成器：basePoints 的 z 坐标在后续计算中未被使用（rootXY/tipXY 只取 x/y），
+    // 改 wingSpan / foamOffsetZ 时无需重建翼型点，避免 3D 预览全链路重算
+  }, [generatedAirfoilPoints])
 
   // 2. 计算投影、移位和最终点位
   const processedData = useMemo(() => {
     if (!basePoints) return null
     const { root: rootPts, tip: tipPts } = basePoints
     
-    const foamZStart = model.foamOffsetZ || 0
+    // 平台偏移（长度方向）合并进泡沫定位：与 foamOffsetZ 一起决定翼面本体沿长度（Z）的摆放
+    const foamZStart = (model.foamOffsetZ || 0) + (model.platformOffset || 0)
     const span = wingSpan || 600
+    // 右塔纵向位置 = 龙门架跨度
     const gd = gantryDistance || 1200
     
     // Z 轴翻转逻辑
@@ -317,36 +436,86 @@ export default function ThreePreview() {
     const toV3 = (x: number, y: number, z: number) => new THREE.Vector3(x || 0, y || 0, z || 0);
 
     // --- 计算镜像与偏移逻辑 (同步 G-code) ---
-    const getPoints = (isRight: boolean, xOffset = 0, yOffset = 0, isNested = false) => {
-      const path = calculateWingPath(rootXY, tipXY, model, isRight, xOffset, yOffset, isNested);
-      const { orderedPoints, shiftX, shiftY, width, height } = path;
+    const axes = model.xyuvMode || ['X', 'Y', 'U', 'Z'];
 
+    // 快照签名校验：previewGcodeData 是否由当前参数生成。
+    // 签名不匹配 = 过期快照（如用户在非 G-Code 预览 Tab 下改了 foamOffsetZ 等）→ 回退实时几何路径，
+    // 保证虚线轮廓/动画路径跟随参数实时更新，不被旧 G-code 卡住。
+    const snapshotFresh = !!model.previewGcodeData?.sig && model.previewGcodeData.sig === computeGcodeSig(model);
+
+    // 解析缓存：key = axes + gd + gcode 字符串；previewGcodeData 引用未变时命中，跳过重复正则解析
+    const parseCached = (gcode: string) => {
+      const key = `${axes.join(',')}|${gd}|${gcode}`;
+      let p = gcodeParseCacheRef.current.get(key);
+      if (!p) {
+        p = parseGcodeToPath(gcode, axes, gd, 0);
+        gcodeParseCacheRef.current.set(key, p);
+        if (gcodeParseCacheRef.current.size > 20) gcodeParseCacheRef.current.clear();
+      }
+      return p;
+    };
+
+    /**
+     * 构建单侧路径数据。
+     * 优先使用已导出的 G-code 解析路径（与导出文件完全一致，进刀/退刀/Home 段都在其中）；
+     * 未导出 G-code 时回退到几何计算（原点 → 翼型轮廓 → 原点）。
+     */
+    const getPoints = (isRight: boolean, xOffset = 0, yOffset = 0, isNested = false, gcodeKey?: 'left' | 'right') => {
+      const path = calculateWingPath(rootXY, tipXY, model, isRight, xOffset, yOffset, isNested);
+      const { orderedPoints, basePoints, shiftX, shiftY, width, height } = path;
+
+      // 龙门架切割路径：使用外扩后的路径点（收缩补偿生效时热丝走刀轨迹外扩）
       const gR = orderedPoints.map(p => toV3(p.x + shiftX, p.y + shiftY, 0));
       const gT = orderedPoints.map(p => toV3(p.u + shiftX, p.z + shiftY, gd));
 
-      const winR = orderedPoints.map(p => {
+      // 机翼本体（翼面/泡沫块）：使用未外扩的 basePoints，保持设计尺寸不变
+      const winR = basePoints.map(p => {
         const ratio = (zRoot - 0) / gd;
         return toV3(p.x + (p.u - p.x) * ratio + shiftX, p.y + (p.z - p.y) * ratio + shiftY, zRoot);
       });
-      const winT = orderedPoints.map(p => {
+      const winT = basePoints.map(p => {
         const ratio = (zTip - 0) / gd;
         return toV3(p.x + (p.u - p.x) * ratio + shiftX, p.y + (p.z - p.y) * ratio + shiftY, zTip);
       });
+
+      // 默认路径：原点 → 翼型轮廓 → 原点（几何回退）
+      let fullPathRoot = [toV3(0, 0, 0), ...gR, toV3(0, 0, 0)];
+      let fullPathTip = [toV3(0, 0, gd), ...gT, toV3(0, 0, gd)];
+
+      // 优先使用 G-code 解析的路径（保证与导出 G-code 完全一致，含进刀/退刀段）
+      // 仅当快照新鲜（签名匹配当前参数）时使用，过期快照一律回退实时几何计算
+      const gcodeData = gcodeKey && snapshotFresh ? model.previewGcodeData?.[gcodeKey] : undefined;
+      let parsedTimeCum: number[] | null = null;
+      if (gcodeData) {
+        const parsed = parseCached(gcodeData);
+        if (parsed.root.length > 0) {
+          fullPathRoot = parsed.root;
+          fullPathTip = parsed.tip;
+          parsedTimeCum = parsed.timeCum;
+        }
+      }
+      // 时间数组：优先用 G-code 每行真实速度，几何回退时按默认进给 300mm/min 合成
+      const rootCum = buildCumulative(fullPathRoot);
+      const timeCum = parsedTimeCum ?? rootCum.map((d) => d / (300 / 60));
 
       return {
         wingRoot: winR,
         wingTip: winT,
         gantryRoot: gR,   // 龙门架左端点路径（XY 平面，Z=0）
         gantryTip: gT,    // 龙门架右端点路径（UZ 平面，Z=gd）
-        fullPathRoot: [toV3(0, 0, 0), ...gR, toV3(0, 0, 0)],
-        fullPathTip: [toV3(0, 0, gd), ...gT, toV3(0, 0, gd)],
+        fullPathRoot,
+        fullPathTip,
+        fullPathRootCum: rootCum, // 弧长累计数组（按路程插值用）
+        fullPathTipCum: buildCumulative(fullPathTip),
+        timeCum,
+        totalTime: timeCum[timeCum.length - 1] || 0,
         width,
         height
       };
     };
 
-    const leftData = getPoints(false); // 原始左翼 (偏移 0,0)
-    const rightDataBase = getPoints(true); // 原始右翼 (偏移 0,0)
+    const leftData = getPoints(false, 0, 0, false, 'left'); // 左翼（优先用 left G-code）
+    const rightDataBase = getPoints(true, 0, 0, false, 'right'); // 右翼（优先用 right G-code）
     
     // 计算双翼模式下的右翼偏移位置
     const isVert = model.stackingMode === 'vertical';
@@ -354,6 +523,7 @@ export default function ThreePreview() {
     // 水平堆叠：X 偏移 = 左翼宽度 + 间隙，Y 偏移 = interWingOffsetY（两翼Y对齐，仅微小调整）
     const xGap = isVert ? (model.interWingOffsetX ?? 0) : (leftData.width + (model.interWingOffsetX ?? 50));
     const yShift = isVert ? (leftData.height + (model.interWingOffsetY ?? 30)) : (model.interWingOffsetY ?? 0);
+    // 偏移后的右翼几何（双翼模式动画统一走 both G-code，因此此处不用 G-code 覆盖）
     const rightDataOffset = getPoints(true, xGap, yShift, !!model.nestBoth); 
 
     // 构建平面内过渡路径：翼1终点 → 原点(0,0) → 翼2起点
@@ -381,14 +551,17 @@ export default function ThreePreview() {
     // 优先使用 G-code 解析的路径（保证与导出 G-code 完全一致）
     let bothPathRoot = defaultBothRoot;
     let bothPathTip = defaultBothTip;
-    if (model.previewGcodeData?.both) {
-      const axes = model.xyuvMode || ['X', 'Y', 'U', 'Z'];
-      const parsed = parseGcodeToPath(model.previewGcodeData.both, axes, gd);
+    let bothTimeCum: number[] | null = null;
+    if (snapshotFresh && model.previewGcodeData?.both) {
+      const parsed = parseCached(model.previewGcodeData.both);
       if (parsed.root.length > 0) {
         bothPathRoot = parsed.root;
         bothPathTip = parsed.tip;
+        bothTimeCum = parsed.timeCum;
       }
     }
+    const bothRootCum = buildCumulative(bothPathRoot);
+    const bothTimeCumArr = bothTimeCum ?? bothRootCum.map((d) => d / (300 / 60));
 
     return {
       left: leftData,
@@ -396,7 +569,11 @@ export default function ThreePreview() {
       rightOffset: rightDataOffset,
       both: {
         fullPathRoot: bothPathRoot,
-        fullPathTip: bothPathTip
+        fullPathTip: bothPathTip,
+        fullPathRootCum: bothRootCum,
+        fullPathTipCum: buildCumulative(bothPathTip),
+        timeCum: bothTimeCumArr,
+        totalTime: bothTimeCumArr[bothTimeCumArr.length - 1] || 0
       },
       center: toV3(xGap / 2 + leftData.width / 2, yShift / 2, span / 2)
     }
@@ -409,12 +586,20 @@ export default function ThreePreview() {
     model.nestBoth,
     model.stackingMode,
     model.pathMargin,
+    model.shrinkCompensationEnabled,
+    model.shrinkCompensation,
     model.interWingOffsetX,
     model.interWingOffsetY,
     model.previewGcodeData,
     model.xyuvMode,
+    // 快照签名：任何影响 G-code 路径的参数变化都会改变签名 → 重新评估快照是否新鲜
+    computeGcodeSig(model),
+    // 注意：towerOffsetX 不参与翼面几何计算（仅 SceneDynamic 马达盒位置使用），
+    // 若放入 deps 会导致改视觉调谐参数时整个 3D 场景（翼面/机架/Text）全量重建 —— 已移除
     wingSpan, 
-    model.foamOffsetZ
+    model.foamOffsetZ,
+    model.platformOffset,
+    model.platformOffsetY
   ])
 
   const { left, right, rightOffset } = processedData || {}
@@ -442,17 +627,67 @@ export default function ThreePreview() {
        const isVert = model.stackingMode === 'vertical';
        const xGap = isVert ? (model.interWingOffsetX ?? 0) : (left.width + (model.interWingOffsetX ?? 50));
        const yShift = isVert ? (left.height + (model.interWingOffsetY ?? 30)) : (model.interWingOffsetY ?? 0);
+       // 平台偏移修正：翼面/泡沫整体沿宽度方向(X)平移 platformOffsetY、沿长度方向(Z)平移 foamOffsetZ+platformOffset
+       const platY = model.platformOffsetY ?? 0;
+       const platZ = (model.platformOffset ?? 0) + (model.foamOffsetZ ?? 0);
 
        if (viewMode === 'both') {
-          return new THREE.Vector3(xGap / 2 + 10, yShift / 2, wingSpan / 2);
+          return new THREE.Vector3(xGap / 2 + 10 + platY, yShift / 2, wingSpan / 2 + platZ);
        } else if (viewMode === 'right') {
-          return new THREE.Vector3(xGap + 10, yShift, wingSpan / 2);
+          return new THREE.Vector3(xGap + 10 + platY, yShift, wingSpan / 2 + platZ);
        } else {
-          return new THREE.Vector3(left.width / 2 + 10, 0, wingSpan / 2);
+          return new THREE.Vector3(left.width / 2 + 10 + platY, 0, wingSpan / 2 + platZ);
        }
     }
     return new THREE.Vector3(foamChord / 2, foamThickness / 2, wingSpan / 2)
-  }, [left, right, rightOffset, viewMode, model.interWingOffsetX, model.interWingOffsetY, model.stackingMode, foamChord, wingSpan, foamThickness])
+  }, [left, right, rightOffset, viewMode, model.interWingOffsetX, model.interWingOffsetY, model.stackingMode, model.platformOffset, model.platformOffsetY, model.foamOffsetZ, foamChord, wingSpan, foamThickness])
+
+  // —— 视角固定策略 ——
+  // 相机位置 + OrbitControls target 只在「翼面数据首次就绪」与「viewMode 切换」时设置：
+  //  - 首次就绪：挂载初期 basePoints 异步加载，centerTarget 是回退值，就绪后聚焦到真实翼面中心
+  //  - viewMode 切换：主动切换左/右/双翼，聚焦到对应翼中心（保留缩放/旋转状态，只移动焦点）
+  //  - 改参数（防抖提交后 model 变化 → centerTarget/翼尺寸变化）：视角完全保持，不重置、不移动
+  const [cameraSettings, setCameraSettings] = useState<{
+    position: [number, number, number];
+    fov: number;
+    near: number;
+    far: number;
+    up: [number, number, number];
+  }>(() => ({
+    position: defaultCameraPosition(centerTarget, foamChord, wingSpan),
+    fov: DEFAULT_CAMERA_FOV,
+    near: 0.1,
+    far: 10000,
+    up: [0, 1, 0],
+  }));
+  const [controlsTarget, setControlsTarget] = useState<THREE.Vector3>(() => centerTarget.clone());
+  const camInitializedRef = useRef(false);
+  const prevViewModeRef = useRef(viewMode);
+
+  // 「复制视角」按钮：Canvas 内部注册读取器（CameraCaptureBridge），此处持有引用供按钮调用
+  const cameraCaptureRef = useRef<CameraCaptureFn | null>(null);
+
+  useEffect(() => {
+    const modeChanged = prevViewModeRef.current !== viewMode;
+    prevViewModeRef.current = viewMode;
+    if (modeChanged) {
+      // viewMode 切换：聚焦到对应翼中心（保留用户缩放/旋转状态，只移动焦点）
+      setControlsTarget(centerTarget.clone());
+      return;
+    }
+    // 翼面数据首次就绪：设置正确的初始相机与 target（挂载初期 basePoints 为 null，centerTarget 是回退值）
+    if (!camInitializedRef.current && processedData) {
+      camInitializedRef.current = true;
+      setCameraSettings({
+        position: defaultCameraPosition(centerTarget, foamChord, wingSpan),
+        fov: DEFAULT_CAMERA_FOV,
+        near: 0.1,
+        far: 10000,
+        up: [0, 1, 0],
+      });
+      setControlsTarget(centerTarget.clone());
+    }
+  }, [viewMode, processedData, centerTarget, foamChord, wingSpan]);
 
   // 计算路径总长度（mm）
   const calcTotalDist = useCallback((paths: THREE.Vector3[][]): number => {
@@ -479,32 +714,59 @@ export default function ThreePreview() {
     return [];
   }, [viewMode, processedData]);
 
+  // 获取当前视图的累计路程 + 累计时间数组（真实 G-code 速度时间轴）
+  const getActiveTimeData = useCallback((): { rootCum: number[]; timeCum: number[]; totalTime: number } => {
+    if (viewMode === 'both' && processedData?.both) {
+      return {
+        rootCum: processedData.both.fullPathRootCum,
+        timeCum: processedData.both.timeCum,
+        totalTime: processedData.both.totalTime,
+      };
+    }
+    const data = viewMode === 'left' ? processedData?.left : processedData?.right;
+    if (data) {
+      return {
+        rootCum: data.fullPathRootCum,
+        timeCum: data.timeCum,
+        totalTime: data.totalTime,
+      };
+    }
+    return { rootCum: [], timeCum: [], totalTime: 0 };
+  }, [viewMode, processedData]);
+
   const totalDist = useMemo(() => calcTotalDist(getActivePaths()), [calcTotalDist, getActivePaths]);
 
-  // 同步 percent → 内部距离值
-  const percentToDist = useCallback((pct: number) => (pct / 100) * totalDist, [totalDist]);
-
-  // 动画核心循环
+  // 动画核心循环 - 基于 G-code 真实时间（每行 F 进给速度）× 倍速。
+  // 关键：每帧只写 internalDistRef + 滑条/进度文本 DOM 直写，不再 setState ——
+  // SceneDynamic 内 useFrame 每帧读取 distRef 直接更新 Three.js 对象，播放期间零 React 重渲染。
   useEffect(() => {
     if (!isPlaying || totalDist <= 0) return;
+
+    const { rootCum, timeCum, totalTime } = getActiveTimeData();
+    if (!timeCum.length || totalTime <= 0) return;
+
+    // 倍速切换时保持当前位置：按当前路程反算时间基准
+    if (internalDistRef.current > 0) {
+      const realSecAtDist = timeAtDist(rootCum, timeCum, internalDistRef.current);
+      startTimeRef.current = performance.now() - (realSecAtDist / speedMult) * 1000;
+    }
 
     let animationFrameId: number;
     const animate = (time: number) => {
       if (!startTimeRef.current) startTimeRef.current = time;
       const elapsedMs = time - startTimeRef.current;
-      const currentDist = (elapsedMs / 1000) * ANIMATION_SPEED_MM_PER_SEC;
+      // 真实切割时间 = 流逝时间 × 倍速；再从时间反查当前路程
+      const realSec = (elapsedMs / 1000) * speedMult;
+      const currentDist = distAtTime(rootCum, timeCum, realSec);
 
-      if (currentDist >= totalDist) {
+      if (realSec >= totalTime) {
         // 播放完毕，循环
         startTimeRef.current = time;
         internalDistRef.current = 0;
-        setPercent(0);
         if (sliderRef.current) sliderRef.current.value = '0';
         if (progressTextRef.current) progressTextRef.current.textContent = `0.0 / ${totalDist.toFixed(1)} mm`;
       } else {
         internalDistRef.current = currentDist;
-        const pct = (currentDist / totalDist) * 100;
-        setPercent(pct);
         if (sliderRef.current) sliderRef.current.value = String(currentDist.toFixed(1));
         if (progressTextRef.current) progressTextRef.current.textContent = `${currentDist.toFixed(1)} / ${totalDist.toFixed(1)} mm`;
       }
@@ -513,21 +775,22 @@ export default function ThreePreview() {
 
     animationFrameId = requestAnimationFrame(animate);
     return () => cancelAnimationFrame(animationFrameId);
-  }, [isPlaying, totalDist]);
+  }, [isPlaying, totalDist, speedMult, getActiveTimeData]);
 
   const togglePlay = useCallback(() => {
     if (!isPlaying) {
-      // 从暂停恢复
-      startTimeRef.current = performance.now() - (internalDistRef.current / ANIMATION_SPEED_MM_PER_SEC * 1000);
+      // 从暂停恢复：按当前路程反算真实时间起点（时间 = 路程对应的真实秒数 / 倍速）
+      const { rootCum, timeCum } = getActiveTimeData();
+      const realSecAtDist = timeAtDist(rootCum, timeCum, internalDistRef.current);
+      startTimeRef.current = performance.now() - (realSecAtDist / speedMult) * 1000;
       setIsPlaying(true);
     } else {
       setIsPlaying(false);
     }
-  }, [isPlaying]);
+  }, [isPlaying, speedMult, getActiveTimeData]);
 
   const handleRestart = useCallback(() => {
     internalDistRef.current = 0;
-    setPercent(0);
     startTimeRef.current = performance.now();
     setIsPlaying(true);
     if (sliderRef.current) sliderRef.current.value = '0';
@@ -536,28 +799,43 @@ export default function ThreePreview() {
 
   const handleSliderChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const dist = Number(e.target.value);
-    const pct = totalDist > 0 ? (dist / totalDist) * 100 : 0;
     internalDistRef.current = dist;
-    setPercent(pct);
     if (progressTextRef.current) progressTextRef.current.textContent = `${dist.toFixed(1)} / ${totalDist.toFixed(1)} mm`;
   }, [totalDist]);
+
+  // —— 参数提交后的「模糊→清晰化」过渡 ——
+  // SliderTextField 松开滑条/数字框提交时，3D 视图先快速模糊，等 React 提交 +
+  // Three.js 场景重建完成后平滑恢复清晰，用视觉过渡掩盖重建瞬间，避免画面跳变。
+  const [previewBlur, setPreviewBlur] = useState(false);
+  const blurTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    const handleParamCommit = () => {
+      if (blurTimerRef.current) clearTimeout(blurTimerRef.current);
+      setPreviewBlur(true);
+      // 等待重建完成（约 300ms）后恢复清晰，CSS transition 平滑过渡
+      blurTimerRef.current = setTimeout(() => setPreviewBlur(false), 300);
+    };
+    window.addEventListener('wing-param-commit', handleParamCommit);
+    return () => {
+      window.removeEventListener('wing-param-commit', handleParamCommit);
+      if (blurTimerRef.current) clearTimeout(blurTimerRef.current);
+    };
+  }, []);
 
   return (
     <div style={{ width: '100%', height: '100%', position: 'relative', background: '#121212', border: '1px solid #2e2e2e', minHeight: 0, borderRadius: 12, overflow: 'hidden' }}>
       <Canvas
         dpr={[1, 2]}
-        camera={{
-          position: [
-            centerTarget.x + Math.max(foamChord, wingSpan) * 1.2,
-            centerTarget.y + Math.max(foamChord, wingSpan) * 0.8,
-            centerTarget.z + Math.max(foamChord, wingSpan) * 0.6,
-          ],
-          fov: 35,
-          near: 0.1,
-          far: 10000,
-          up: [0, 1, 0],
-        }}
+        camera={cameraSettings}
         shadows
+        style={{
+          filter: previewBlur ? 'blur(7px)' : 'none',
+          opacity: previewBlur ? 0.5 : 1,
+          // 进入模糊快（0.15s），恢复清晰慢（0.45s）：形成「模糊一下 → 平滑清晰化」节奏
+          transition: previewBlur
+            ? 'filter 0.15s ease-in, opacity 0.15s ease-in'
+            : 'filter 0.45s ease-out, opacity 0.45s ease-out',
+        }}
       >
         
   {/* 移除雾效，保持视野清晰 */}
@@ -577,195 +855,51 @@ export default function ThreePreview() {
   <directionalLight position={[0, -200, 500]} intensity={1.2} color="#e0f2fe" />
   <hemisphereLight intensity={0.8} color="#ffffff" groundColor="#94a3b8" />
   
-  <OrbitControls
-          makeDefault 
-          target={centerTarget}
-          enablePan={true}
-          enableZoom={true}
-          enableDamping={false}
-          rotateSpeed={0.8}
-          zoomSpeed={1.2}
-          panSpeed={0.8}
-          minDistance={50}
-          mouseButtons={{
-            LEFT: THREE.MOUSE.PAN,
-            MIDDLE: THREE.MOUSE.ROTATE,
-            RIGHT: THREE.MOUSE.ROTATE
-          }}
-        />
+  <TouchpadOrbitControls
+          makeDefault
+          target={controlsTarget}
+          enablePan={true}
+          enableZoom={true}
+          rotateSpeed={0.8}
+          panSpeed={0.8}
+          minDistance={50}
+        />
 
-        {/* 坐标轴保持不旋转 */}
-        <Axes size={Math.max(foamChord, wingSpan, foamThickness, 200)} />
+        {/* 复制视角：把当前摄像机 position / target / fov 注册到外部 ref（供顶部按钮读取） */}
+        <CameraCaptureBridge captureRef={cameraCaptureRef} />
 
-        <group rotation={[0, 0, 0]}>
-          {/* 泡沫块 — 紧密包裹机翼 */}
-          {left && right && (() => {
-            const M = 5; // 紧贴边距
-            const isBoth = viewMode === 'both';
-            
-            if (isBoth) {
-              const pts1 = left.wingRoot;
-              const pts2 = rightOffset?.wingRoot || right.wingRoot;
-              if (!pts1.length && !pts2.length) return null;
-              const allX = [...pts1.map(p => p.x), ...pts2.map(p => p.x)];
-              const allY = [...pts1.map(p => p.y), ...pts2.map(p => p.y)];
-              if (!allX.length) return null;
-              const minX = Math.min(...allX), maxX = Math.max(...allX);
-              const minY = Math.min(...allY), maxY = Math.max(...allY);
-              return (
-                <FoamBlock 
-                  width={maxX - minX + M * 2} 
-                  height={maxY - minY + M * 2} 
-                  offsetX={minX - M} 
-                  offsetY={minY - M} 
-                />
-              );
-            }
-            // 单翼模式
-            const pts = (viewMode === 'right' ? right.wingRoot : left.wingRoot);
-            if (!pts.length) return null;
-            const allX = pts.map(p => p.x), allY = pts.map(p => p.y);
-            const minX = Math.min(...allX), maxX = Math.max(...allX);
-            const minY = Math.min(...allY), maxY = Math.max(...allY);
-            return (
-              <FoamBlock 
-                width={maxX - minX + M * 2} 
-                height={maxY - minY + M * 2} 
-                offsetX={minX - M} 
-                offsetY={minY - M} 
-              />
-            );
-          })()}
+        {/* 静态几何（机架/泡沫/翼面/路径/标签）与动态热丝分离：
+            SceneStatic 用 React.memo —— 播放动画时 distRef 每帧变化但不触发 React 渲染（ref 引用稳定），
+            SceneStatic/SceneDynamic 均零重渲染，热丝与马达盒由 SceneDynamic 内 useFrame 每帧直接更新 Three.js 对象 */}
+        <SceneStatic
+          processedData={processedData}
+          viewMode={viewMode}
+          // axesSize 只依赖机架尺寸（不依赖弦长/翼展/厚度）：
+          // 改翼型参数时坐标轴不重建，MachineRig memo 完全命中，避免无谓的 WebGL buffer 重传
+          axesSize={Math.max(model.machineWidth ?? 1000, model.machineHeight ?? 600, gantryDistance, 200)}
+          machineWidth={model.machineWidth ?? 1000}
+          machineHeight={model.machineHeight ?? 600}
+          gantryDistance={gantryDistance}
+          platformOffset={model.platformOffset ?? 0}
+          platformOffsetY={model.platformOffsetY ?? 0}
+          wingSpan={wingSpan}
+          foamOffsetZ={model.foamOffsetZ ?? 0}
+          stackingMode={model.stackingMode}
+        />
 
-          {/* 跟随刀头移动的马达盒 */}
-          {left && right && rightOffset && (
-            <LiveMotorBox
-              viewMode={viewMode}
-              leftData={left}
-              rightData={viewMode === 'both' ? rightOffset : right}
-              bothData={processedData?.both}
-              percent={percent}
-              gantryDistance={gantryDistance}
-            />
-          )}
-
-          <Machine4Axis foamChord={foamChord} wingSpan={wingSpan} foamThickness={foamThickness} />
-          
-          {/* 右翼 (isRightWing=true) */}
-          {(viewMode === 'right' || viewMode === 'both') && (viewMode === 'both' ? rightOffset : right) && (
-            <group>
-              {(() => {
-                const r = viewMode === 'both' ? rightOffset : right;
-                if (!r) return null;
-                return (
-                  <>
-                    <WingSurface rootPts={r.wingRoot} tipPts={r.wingTip} color="#7c3aed" />
-                    <WingEndCap points={r.wingRoot} color="#7c3aed" />
-                    <WingEndCap points={r.wingTip} color="#7c3aed" />
-                    <WingOutline points={r.wingRoot} color="#a78bfa" />
-                    <WingOutline points={r.wingTip} color="#c4b5fd" />
-                    {viewMode === 'right' && r.fullPathRoot.length > 0 && (
-                      <>
-                        <WingOutline points={r.fullPathRoot} color="#a78bfa" opacity={0.5} />
-                        <WingOutline points={r.fullPathTip} color="#c4b5fd" opacity={0.5} />
-                      </>
-                    )}
-                  </>
-                );
-              })()}
-            </group>
-          )}
-
-          {/* 左翼 (isRightWing=false) */}
-          {(viewMode === 'left' || viewMode === 'both') && left && (
-            <group>
-              <WingSurface rootPts={left.wingRoot} tipPts={left.wingTip} color="#7c3aed" />
-              <WingEndCap points={left.wingRoot} color="#7c3aed" />
-              <WingEndCap points={left.wingTip} color="#7c3aed" />
-              <WingOutline points={left.wingRoot} color="#a78bfa" />
-              <WingOutline points={left.wingTip} color="#c4b5fd" />
-               {viewMode === 'left' && left.fullPathRoot.length > 0 && (
-                <>
-                  <WingOutline points={left.fullPathRoot} color="#a78bfa" opacity={0.5} />
-                  <WingOutline points={left.fullPathTip} color="#c4b5fd" opacity={0.5} />
-                </>
-              )}
-            </group>
-          )}
-
-          {/* 双翼模式下的完整路径 */}
-          {viewMode === 'both' && processedData?.both && (
-            <>
-              <WingOutline points={processedData.both.fullPathRoot} color="#ef4444" opacity={0.8} />
-              <WingOutline points={processedData.both.fullPathTip} color="#ef4444" opacity={0.8} />
-            </>
-          )}
-
-          {/* 双翼模式翼面标签 */}
-          {viewMode === 'both' && left && rightOffset && model.stackingMode === 'vertical' && (
-            <>
-              <Text
-                position={[left.wingRoot[0]?.x - 15 || 0, (left.wingRoot[0]?.y || 0) + left.height / 2, wingSpan / 2]}
-                fontSize={18}
-                color="#a78bfa"
-                anchorX="right"
-                anchorY="middle"
-                fillOpacity={0.8}
-              >
-                上翼 (先切)
-              </Text>
-              <Text
-                position={[rightOffset.wingRoot[0]?.x - 15 || 0, (rightOffset.wingRoot[0]?.y || 0) + rightOffset.height / 2, wingSpan / 2]}
-                fontSize={18}
-                color="#38bdf8"
-                anchorX="right"
-                anchorY="middle"
-                fillOpacity={0.8}
-              >
-                下翼 (后切)
-              </Text>
-            </>
-          )}
-          {viewMode === 'both' && left && rightOffset && model.stackingMode === 'horizontal' && (
-            <>
-              <Text
-                position={[(left.wingRoot[0]?.x || 0) + left.width / 2, -20, wingSpan / 2]}
-                fontSize={18}
-                color="#a78bfa"
-                anchorX="center"
-                anchorY="middle"
-                fillOpacity={0.8}
-              >
-                左翼 (先切)
-              </Text>
-              <Text
-                position={[(rightOffset.wingRoot[0]?.x || 0) + rightOffset.width / 2, -20, wingSpan / 2]}
-                fontSize={18}
-                color="#38bdf8"
-                anchorX="center"
-                anchorY="middle"
-                fillOpacity={0.8}
-              >
-                右翼 (后切)
-              </Text>
-            </>
-          )}
-
-          {/* 实时位置热丝 — 仅非双翼模式显示 */}
-          {viewMode !== 'both' && <Hotwire realPos={realPos} />}
-          
-          {/* 预览热丝 — 鲜绿色，双翼模式用合并路径 */}
-          {left && right && rightOffset && (
-            <PreviewHotwire 
-              leftData={left}
-              rightData={viewMode === 'both' ? rightOffset : right}
-              bothData={processedData?.both}
-              viewMode={viewMode}
-              percent={percent} 
-            />
-          )}
-        </group>
+        <SceneDynamic
+          processedData={processedData}
+          viewMode={viewMode}
+          distRef={internalDistRef}
+          realPos={realPos}
+          gantryDistance={gantryDistance}
+          machineHeight={model.machineHeight ?? 600}
+          towerOffsetX={model.towerOffsetX ?? 0}
+        />
       </Canvas>
+
+      {/* 顶部中央：复制摄像机视角按钮（复制结果粘贴给 AI 可设为默认视角） */}
+      <CameraCaptureButton captureRef={cameraCaptureRef} />
 
       {/* 视图切换按钮 */}
       <Box sx={{
@@ -802,6 +936,24 @@ export default function ThreePreview() {
           <ToggleButton value="both">双翼</ToggleButton>
         </ToggleButtonGroup>
       </Box>
+
+      {/* 右上角倍速按钮：默认 8x 真实速度，点击切换 16x/8x */}
+      <button
+        onClick={() => setSpeedMult((m) => (m === 8 ? 16 : 8))}
+        title={`播放倍速：基于 G-code 每行真实进给速度的 ${speedMult}x`}
+        style={{
+          position: 'absolute', top: 12, right: 12, zIndex: 100,
+          background: speedMult === 16 ? 'rgba(56, 189, 248, 0.25)' : 'rgba(15, 23, 42, 0.8)',
+          color: '#38bdf8',
+          border: '1px solid rgba(56, 189, 248, 0.35)',
+          borderRadius: 8, padding: '6px 12px',
+          fontSize: 12, fontFamily: 'monospace', fontWeight: 600,
+          cursor: 'pointer', lineHeight: 1.4,
+          backdropFilter: 'blur(8px)',
+        }}
+      >
+        {speedMult}x
+      </button>
 
       {/* 底部播放进度条 — 参照 2D 视图样式 */}
       <div style={{
@@ -869,54 +1021,398 @@ export default function ThreePreview() {
 }
 
 
-function PreviewHotwire({ leftData, rightData, bothData, viewMode, percent }: { 
-  leftData: any; 
-  rightData: any; 
-  bothData?: any;
+// ===== 静态场景：机架 / 泡沫 / 翼面 / 路径 / 标签 =====
+// 用 React.memo 隔离：播放动画时（distRef 每帧变化但不触发渲染）props 未变 → 零重渲染；
+// 只有 processedData / viewMode / 机器参数真正变化时才重建几何。
+interface SceneStaticProps {
+  processedData: any;
   viewMode: 'left' | 'right' | 'both';
-  percent: number 
-}) {
-  const getPosAt = (ptsR: THREE.Vector3[], ptsT: THREE.Vector3[], p: number) => {
-    if (!ptsR?.length) return { start: new THREE.Vector3(), end: new THREE.Vector3() };
-    const idx = Math.max(0, Math.min(ptsR.length - 1, Math.floor(p * (ptsR.length - 1))));
-    return { start: ptsR[idx], end: ptsT[idx] };
-  };
-
-  let start = new THREE.Vector3(), end = new THREE.Vector3();
-
-  if (viewMode === 'both' && bothData) {
-    const pos = getPosAt(bothData.fullPathRoot, bothData.fullPathTip, percent / 100);
-    start.copy(pos.start);
-    end.copy(pos.end);
-  } else {
-    // @ts-ignore
-    const data = viewMode === 'left' ? leftData : rightData;
-    const pos = getPosAt(data?.fullPathRoot, data?.fullPathTip, percent / 100);
-    start.copy(pos.start);
-    end.copy(pos.end);
-  }
-
-  return (
-    <group>
-      <DreiLine points={[start, end]} color="#ef4444" lineWidth={viewMode === 'both' ? 4 : 3} />
-      {/* 左塔球 */}
-      <mesh position={start.toArray()} frustumCulled={false}>
-        <sphereGeometry args={[viewMode === 'both' ? 3.5 : 2.5, 16, 16]} />
-        <meshStandardMaterial color="#38bdf8" emissive="#38bdf8" emissiveIntensity={0.6} depthTest={false} />
-      </mesh>
-      {/* 右塔球 */}
-      <mesh position={end.toArray()} frustumCulled={false}>
-        <sphereGeometry args={[viewMode === 'both' ? 3.5 : 2.5, 16, 16]} />
-        <meshStandardMaterial color="#fb923c" emissive="#fb923c" emissiveIntensity={0.6} depthTest={false} />
-      </mesh>
-    </group>
-  );
+  axesSize: number;
+  machineWidth: number;
+  machineHeight: number;
+  gantryDistance: number;
+  platformOffset: number;
+  platformOffsetY: number;
+  wingSpan: number;
+  foamOffsetZ: number;
+  stackingMode?: string;
 }
 
-export function Machine4Axis({ wingSpan: _wingSpan }: { wingSpan: number; foamChord: number; foamThickness?: number; washout?: number }) {
-  const { model } = useWing()
-  const { machineWidth = 1000, machineHeight = 600, gantryDistance = 1200 } = model
+// ===== 机器框架（坐标轴 + 4 轴机架）— 独立 memo =====
+// 与翼面几何分离：改翼型参数（弦长/翼型点等）时机器框架不重建，避免无谓的 WebGL buffer 重传。
+interface MachineRigProps {
+  axesSize: number;
+  machineWidth: number;
+  machineHeight: number;
+  gantryDistance: number;
+  platformOffset: number;
+  platformOffsetY: number;
+}
 
+const MachineRig = memo(function MachineRig({
+  axesSize, machineWidth, machineHeight, gantryDistance, platformOffset, platformOffsetY,
+}: MachineRigProps) {
+  return (
+    <>
+      <Axes size={axesSize} />
+      <Machine4Axis
+        foamChord={0}
+        wingSpan={0}
+        foamThickness={0}
+        platformOffset={platformOffset}
+        platformOffsetY={platformOffsetY}
+        machineWidth={machineWidth}
+        machineHeight={machineHeight}
+        gantryDistance={gantryDistance}
+      />
+    </>
+  );
+});
+
+const SceneStatic = memo(function SceneStatic({
+  processedData, viewMode, axesSize, machineWidth, machineHeight, gantryDistance,
+  platformOffset, platformOffsetY, wingSpan, foamOffsetZ,
+  stackingMode,
+}: SceneStaticProps) {
+  const left: any = processedData?.left;
+  const right: any = processedData?.right;
+  const rightOffset: any = processedData?.rightOffset;
+
+  return (
+    <>
+      {/* 机器框架（坐标轴 + 机架）— 独立 memo，改翼型参数时不重建 */}
+      <MachineRig
+        axesSize={axesSize}
+        machineWidth={machineWidth}
+        machineHeight={machineHeight}
+        gantryDistance={gantryDistance}
+        platformOffset={platformOffset}
+        platformOffsetY={platformOffsetY}
+      />
+
+      <group rotation={[0, 0, 0]}>
+        {/* 泡沫块 — 紧密包裹机翼 */}
+        {left && right && (() => {
+          const M = 5; // 紧贴边距
+          const isBoth = viewMode === 'both';
+          
+          if (isBoth) {
+            const pts1 = left.wingRoot;
+            const pts2 = rightOffset?.wingRoot || right.wingRoot;
+            if (!pts1.length && !pts2.length) return null;
+            const allX = [...pts1.map((p: { x: number; y: number }) => p.x), ...pts2.map((p: { x: number; y: number }) => p.x)];
+            const allY = [...pts1.map((p: { x: number; y: number }) => p.y), ...pts2.map((p: { x: number; y: number }) => p.y)];
+            if (!allX.length) return null;
+            const minX = Math.min(...allX), maxX = Math.max(...allX);
+            const minY = Math.min(...allY), maxY = Math.max(...allY);
+            return (
+              <FoamBlock 
+                width={maxX - minX + M * 2} 
+                height={maxY - minY + M * 2} 
+                offsetX={minX - M} 
+                offsetY={minY - M} 
+                wingSpan={wingSpan}
+                foamOffsetZ={foamOffsetZ}
+                platformOffset={platformOffset}
+              />
+            );
+          }
+          // 单翼模式
+          const pts = (viewMode === 'right' ? right.wingRoot : left.wingRoot);
+          if (!pts.length) return null;
+          const allX = pts.map((p: { x: number; y: number }) => p.x), allY = pts.map((p: { x: number; y: number }) => p.y);
+          const minX = Math.min(...allX), maxX = Math.max(...allX);
+          const minY = Math.min(...allY), maxY = Math.max(...allY);
+          return (
+            <FoamBlock 
+              width={maxX - minX + M * 2} 
+              height={maxY - minY + M * 2} 
+              offsetX={minX - M} 
+              offsetY={minY - M} 
+              wingSpan={wingSpan}
+              foamOffsetZ={foamOffsetZ}
+              platformOffset={platformOffset}
+            />
+          );
+        })()}
+
+        {/* 右翼 (isRightWing=true) */}
+        {(viewMode === 'right' || viewMode === 'both') && (viewMode === 'both' ? rightOffset : right) && (
+          <group>
+            {(() => {
+              const r = viewMode === 'both' ? rightOffset : right;
+              if (!r) return null;
+              return (
+                <>
+                  <WingSurface rootPts={r.wingRoot} tipPts={r.wingTip} color="#7c3aed" />
+                  <WingEndCap points={r.wingRoot} color="#7c3aed" />
+                  <WingEndCap points={r.wingTip} color="#7c3aed" />
+                  <WingOutline points={r.wingRoot} color="#a78bfa" />
+                  <WingOutline points={r.wingTip} color="#c4b5fd" />
+                  {viewMode === 'right' && r.fullPathRoot.length > 0 && (
+                    <>
+                      <WingOutline points={r.fullPathRoot} color="#a78bfa" opacity={0.5} />
+                      <WingOutline points={r.fullPathTip} color="#c4b5fd" opacity={0.5} />
+                    </>
+                  )}
+                </>
+              );
+            })()}
+          </group>
+        )}
+
+        {/* 左翼 (isRightWing=false) */}
+        {(viewMode === 'left' || viewMode === 'both') && left && (
+          <group>
+            <WingSurface rootPts={left.wingRoot} tipPts={left.wingTip} color="#7c3aed" />
+            <WingEndCap points={left.wingRoot} color="#7c3aed" />
+            <WingEndCap points={left.wingTip} color="#7c3aed" />
+            <WingOutline points={left.wingRoot} color="#a78bfa" />
+            <WingOutline points={left.wingTip} color="#c4b5fd" />
+             {viewMode === 'left' && left.fullPathRoot.length > 0 && (
+              <>
+                <WingOutline points={left.fullPathRoot} color="#a78bfa" opacity={0.5} />
+                <WingOutline points={left.fullPathTip} color="#c4b5fd" opacity={0.5} />
+              </>
+            )}
+          </group>
+        )}
+
+        {/* 双翼模式下的完整路径 */}
+        {viewMode === 'both' && processedData?.both && (
+          <>
+            <WingOutline points={processedData.both.fullPathRoot} color="#ef4444" opacity={0.8} />
+            <WingOutline points={processedData.both.fullPathTip} color="#ef4444" opacity={0.8} />
+          </>
+        )}
+
+        {/* 双翼模式翼面标签 */}
+        {viewMode === 'both' && left && rightOffset && stackingMode === 'vertical' && (
+          <>
+            <Text
+              position={[left.wingRoot[0]?.x - 15 || 0, (left.wingRoot[0]?.y || 0) + left.height / 2, wingSpan / 2]}
+              fontSize={18}
+              color="#a78bfa"
+              anchorX="right"
+              anchorY="middle"
+              fillOpacity={0.8}
+            >
+              上翼 (先切)
+            </Text>
+            <Text
+              position={[rightOffset.wingRoot[0]?.x - 15 || 0, (rightOffset.wingRoot[0]?.y || 0) + rightOffset.height / 2, wingSpan / 2]}
+              fontSize={18}
+              color="#38bdf8"
+              anchorX="right"
+              anchorY="middle"
+              fillOpacity={0.8}
+            >
+              下翼 (后切)
+            </Text>
+          </>
+        )}
+        {viewMode === 'both' && left && rightOffset && stackingMode === 'horizontal' && (
+          <>
+            <Text
+              position={[(left.wingRoot[0]?.x || 0) + left.width / 2, -20, wingSpan / 2]}
+              fontSize={18}
+              color="#a78bfa"
+              anchorX="center"
+              anchorY="middle"
+              fillOpacity={0.8}
+            >
+              左翼 (先切)
+            </Text>
+            <Text
+              position={[(rightOffset.wingRoot[0]?.x || 0) + rightOffset.width / 2, -20, wingSpan / 2]}
+              fontSize={18}
+              color="#38bdf8"
+              anchorX="center"
+              anchorY="middle"
+              fillOpacity={0.8}
+            >
+              右翼 (后切)
+            </Text>
+          </>
+        )}
+      </group>
+    </>
+  );
+});
+
+// ===== 动态热丝 / 马达盒：随播放进度 distRef 与实时位置 realPos 变化 =====
+// 播放动画时每帧只更新 distRef.current（不触发 React 渲染），本组件内 useFrame
+// 每帧读取 distRef 直接更新 Three.js 对象（热丝几何/马达/球位置），播放与拖动期间零 React 重渲染。
+interface SceneDynamicProps {
+  processedData: any;
+  viewMode: 'left' | 'right' | 'both';
+  distRef: { current: number };
+  realPos: { X: number; Y: number; U: number; Z: number };
+  gantryDistance: number;
+  machineHeight: number;
+  towerOffsetX: number;
+}
+
+const SceneDynamic = memo(function SceneDynamic({
+  processedData, viewMode, distRef, realPos, gantryDistance, machineHeight, towerOffsetX,
+}: SceneDynamicProps) {
+  const left = processedData?.left;
+  const right = processedData?.right;
+  const rightOffset = processedData?.rightOffset;
+
+  // 马达盒几何参数（与 TowerMotors 保持一致）
+  const SCALE = 3;
+  const xMotorW = 40 * SCALE, xMotorH = 20 * SCALE, xMotorD = 16 * SCALE;  // X 轴马达：宽扁
+  const yMotorW = 24 * SCALE, yMotorH = 36 * SCALE, yMotorD = 16 * SCALE;  // Y 轴马达：窄高
+  const PLATFORM_TOP_Y = 2;  // 切割平台顶面 Y 坐标
+  const xMotorTopY = PLATFORM_TOP_Y - yMotorH;
+  const xMotorCenterY = xMotorTopY - xMotorH / 2;
+  // towerOffsetX=0 时上下马达同平面（对齐）：左塔 z=-towerOffsetX、右塔 z=gd+towerOffsetX
+  const leftMotorZ = -towerOffsetX;
+  const rightMotorZ = gantryDistance + towerOffsetX;
+
+  // 热丝线 — 一次性创建（含几何+材质），useFrame 只更新 position attribute（避免每帧重建 BufferGeometry）
+  const wireLine = useMemo(() => {
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(6), 3));
+    const m = new THREE.LineBasicMaterial({ color: '#ef4444', transparent: true, opacity: 0.9, depthTest: false });
+    const line = new THREE.Line(g, m);
+    line.frustumCulled = false;
+    return line;
+  }, []);
+  const leftBallRef = useRef<THREE.Mesh>(null);
+  const rightBallRef = useRef<THREE.Mesh>(null);
+
+  // 马达盒 meshes
+  const leftScrewRef = useRef<THREE.Mesh>(null);
+  const leftXRef = useRef<THREE.Mesh>(null);
+  const leftYRef = useRef<THREE.Mesh>(null);
+  const rightScrewRef = useRef<THREE.Mesh>(null);
+  const rightXRef = useRef<THREE.Mesh>(null);
+  const rightYRef = useRef<THREE.Mesh>(null);
+
+  // 预分配 Vector3，避免每帧 new
+  const zero = useMemo(() => new THREE.Vector3(), []);
+  const startV = useMemo(() => new THREE.Vector3(), []);
+  const endV = useMemo(() => new THREE.Vector3(), []);
+
+  // XY 与 UZ 平面必须按同一真实时刻同步：G-code 每行四轴同时运动，共享同一时间轴（timeCum）。
+  // 由 root 距离反算时刻 → 再用该时刻求 tip 距离 → 两塔/热丝两端始终落在同一行上。
+  const getSyncPos = (data: any, d: number) => {
+    if (!data?.fullPathRoot?.length) return null;
+    const rootCum = data.fullPathRootCum || buildCumulative(data.fullPathRoot);
+    const timeCum = data.timeCum || rootCum.map((x: number) => x / (300 / 60)); // 几何回退时按默认 300mm/min 合成
+    const t = timeAtDist(rootCum, timeCum, d);
+    const tipCum = data.fullPathTipCum || buildCumulative(data.fullPathTip || data.fullPathRoot);
+    const tipDist = distAtTime(tipCum, timeCum, t);
+    return {
+      left: getPointAtDist(data.fullPathRoot, rootCum, d, zero),
+      right: getPointAtDist(data.fullPathTip || data.fullPathRoot, tipCum, tipDist, zero),
+    };
+  };
+
+  useFrame(() => {
+    const d = distRef.current;
+    const data = (viewMode === 'both' && processedData?.both)
+      ? processedData.both
+      : (viewMode === 'left' ? left : right);
+    const pos = getSyncPos(data, d);
+    if (!pos) return;
+
+    // 热丝线 + 左右球（端点落在上方垂直马达的顶面中心：左塔 z=0、右塔 z=gd）
+    startV.set(pos.left.x, pos.left.y, 0);
+    endV.set(pos.right.x, pos.right.y, gantryDistance);
+    const attr = wireLine.geometry.getAttribute('position');
+    if (attr) {
+      attr.setXYZ(0, startV.x, startV.y, startV.z);
+      attr.setXYZ(1, endV.x, endV.y, endV.z);
+      attr.needsUpdate = true;
+    }
+    wireLine.geometry.computeBoundingSphere();
+    leftBallRef.current?.position.copy(startV);
+    rightBallRef.current?.position.copy(endV);
+
+    // 马达盒：丝杆/马达 position 跟随刀头（丝杆底部中心对准底下水平马达中心）
+    leftScrewRef.current?.position.set(pos.left.x, machineHeight / 2, leftMotorZ);
+    leftXRef.current?.position.set(pos.left.x, xMotorCenterY, leftMotorZ);
+    leftYRef.current?.position.set(pos.left.x, pos.left.y - yMotorH / 2, 0);
+    rightScrewRef.current?.position.set(pos.right.x, machineHeight / 2, rightMotorZ);
+    rightXRef.current?.position.set(pos.right.x, xMotorCenterY, rightMotorZ);
+    rightYRef.current?.position.set(pos.right.x, pos.right.y - yMotorH / 2, gantryDistance);
+  });
+
+  return (
+    <group rotation={[0, 0, 0]}>
+      {/* 跟随刀头移动的马达盒（position 由 useFrame 更新） */}
+      {left && right && rightOffset && (
+        <group>
+          {/* ===== 左塔 ===== */}
+          {/* 丝杆 — 垂直穿过 X/Y 马达，长度与机台高度一致；底部中心对准底下 X 马达中心 */}
+          <mesh ref={leftScrewRef} position={[0, machineHeight / 2, leftMotorZ]}>
+            <boxGeometry args={[4 * SCALE, machineHeight, 4 * SCALE]} />
+            <meshStandardMaterial color="#94a3b8" roughness={0.3} metalness={0.9} />
+          </mesh>
+          {/* X 轴马达（水平）— 沿泡沫长度方向向机器外侧（z 负方向）偏移 */}
+          <mesh ref={leftXRef} position={[0, xMotorCenterY, leftMotorZ]}>
+            <boxGeometry args={[xMotorW, xMotorH, xMotorD]} />
+            <meshStandardMaterial color="#3b82f6" roughness={0.4} metalness={0.7} />
+          </mesh>
+          {/* Y 轴马达 — 顶面中心与热丝挂点同 y；热丝端点落在其「靠近机器的面」的顶边中心；马达保持原位，不随平台移动 */}
+          <mesh ref={leftYRef} position={[0, 0, 0]}>
+            <boxGeometry args={[yMotorW, yMotorH, yMotorD]} />
+            <meshStandardMaterial color="#60a5fa" roughness={0.4} metalness={0.6} />
+          </mesh>
+
+          {/* ===== 右塔 ===== */}
+          {/* 丝杆 — 垂直穿过 X/Y 马达；底部中心对准底下 U 马达中心 */}
+          <mesh ref={rightScrewRef} position={[0, machineHeight / 2, rightMotorZ]}>
+            <boxGeometry args={[4 * SCALE, machineHeight, 4 * SCALE]} />
+            <meshStandardMaterial color="#94a3b8" roughness={0.3} metalness={0.9} />
+          </mesh>
+          {/* U 轴马达（水平）— 沿泡沫长度方向向机器外侧（z 正方向）偏移 */}
+          <mesh ref={rightXRef} position={[0, xMotorCenterY, rightMotorZ]}>
+            <boxGeometry args={[xMotorW, xMotorH, xMotorD]} />
+            <meshStandardMaterial color="#f97316" roughness={0.4} metalness={0.7} />
+          </mesh>
+          {/* Z 轴马达（垂直）— 顶面中心与热丝挂点同 y；热丝端点落在其「靠近机器的面」的顶边中心；马达保持原位，不随平台移动 */}
+          <mesh ref={rightYRef} position={[0, 0, gantryDistance]}>
+            <boxGeometry args={[yMotorW, yMotorH, yMotorD]} />
+            <meshStandardMaterial color="#fb923c" roughness={0.4} metalness={0.6} />
+          </mesh>
+        </group>
+      )}
+
+      {/* 实时位置热丝 — 仅非双翼模式显示 */}
+      {viewMode !== 'both' && <Hotwire realPos={realPos} gantryDistance={gantryDistance} />}
+      
+      {/* 预览热丝 — 鲜红色（几何/位置由 useFrame 更新） */}
+      {left && right && rightOffset && (
+        <group>
+          <primitive object={wireLine} />
+          {/* 左塔球 */}
+          <mesh ref={leftBallRef} position={[0, 0, 0]} frustumCulled={false}>
+            <sphereGeometry args={[viewMode === 'both' ? 3.5 : 2.5, 16, 16]} />
+            <meshStandardMaterial color="#38bdf8" emissive="#38bdf8" emissiveIntensity={0.6} depthTest={false} />
+          </mesh>
+          {/* 右塔球 */}
+          <mesh ref={rightBallRef} position={[0, 0, 0]} frustumCulled={false}>
+            <sphereGeometry args={[viewMode === 'both' ? 3.5 : 2.5, 16, 16]} />
+            <meshStandardMaterial color="#fb923c" emissive="#fb923c" emissiveIntensity={0.6} depthTest={false} />
+          </mesh>
+        </group>
+      )}
+    </group>
+  );
+});
+
+
+export function Machine4Axis({ wingSpan: _wingSpan, platformOffset = 0, platformOffsetY = 0, machineWidth = 1000, machineHeight = 600, gantryDistance = 1200 }: {
+  wingSpan: number; foamChord: number; foamThickness?: number; washout?: number;
+  platformOffset?: number; platformOffsetY?: number;
+  machineWidth?: number; machineHeight?: number; gantryDistance?: number;
+}) {
+
+  // 右塔立柱/横梁/底板/导轨位于龙门架跨度 gantryDistance 处
   const towerDistance = gantryDistance;
 
   // 立柱/导轨位置
@@ -925,6 +1421,10 @@ export function Machine4Axis({ wingSpan: _wingSpan }: { wingSpan: number; foamCh
     [0, 0, 0], [machineWidth, 0, 0],
     [0, 0, towerDistance], [machineWidth, 0, towerDistance],
   ];
+
+  // 切割平台沿长度方向（两塔连线）偏移 platformOffset、沿宽度方向偏移 platformOffsetY；马达/立柱/横梁保持原位
+  const platformX = machineWidth / 2 + platformOffsetY;
+  const platformZ = towerDistance / 2 + platformOffset;
 
   return (
     <group>
@@ -953,12 +1453,12 @@ export function Machine4Axis({ wingSpan: _wingSpan }: { wingSpan: number; foamCh
         <meshStandardMaterial color="#64748b" metalness={0.7} roughness={0.4} transparent opacity={0.6} />
       </mesh>
 
-      {/* 底部底板 — 微厚度，上方覆盖遮挡grid，下方透明可见 */}
-      <mesh position={[machineWidth / 2, 1, towerDistance / 2]}>
+      {/* 底部底板 — 微厚度，上方覆盖遮挡grid，下方透明可见；沿长度方向偏移 platformOffset、宽度方向偏移 platformOffsetY */}
+      <mesh position={[platformX, 1, platformZ]}>
         <boxGeometry args={[machineWidth + colW, 2, towerDistance + colD]} />
         <meshStandardMaterial color="#2a2a3a" metalness={0} roughness={0.9} side={THREE.FrontSide} />
       </mesh>
-      <mesh position={[machineWidth / 2, -1, towerDistance / 2]}>
+      <mesh position={[platformX, -1, platformZ]}>
         <boxGeometry args={[machineWidth + colW, 2, towerDistance + colD]} />
         <meshStandardMaterial color="#475569" metalness={0} roughness={0.9} transparent opacity={0.2} side={THREE.BackSide} depthWrite={false} />
       </mesh>
@@ -996,6 +1496,9 @@ function WingSurface({ rootPts, tipPts, color = '#7c3aed' }: { rootPts: THREE.Ve
     const baseColor = new THREE.Color(color)
     const lightColor = new THREE.Color(color).lerp(new THREE.Color('#ffffff'), 0.35)
     const darkColor = new THREE.Color(color).multiplyScalar(0.6)
+    // 复用两个临时 Color 对象，避免每段 2 次 clone().lerp() 分配（n=121 时约 240 次 → 0 次）
+    const c = new THREE.Color()
+    const cLight = new THREE.Color()
 
     const verts: number[] = []
     const cols: number[] = []
@@ -1011,8 +1514,8 @@ function WingSurface({ rootPts, tipPts, color = '#7c3aed' }: { rootPts: THREE.Ve
 
       // 计算每个顶点在弦长方向的位置（0=前缘，1=后缘）
       const ratio = i / (n - 1)
-      const c = baseColor.clone().lerp(darkColor, ratio * 0.5)
-      const cLight = baseColor.clone().lerp(lightColor, ratio * 0.3)
+      c.copy(baseColor).lerp(darkColor, ratio * 0.5)
+      cLight.copy(baseColor).lerp(lightColor, ratio * 0.3)
 
       // triangle 1: r0, r1, t0
       verts.push(r0.x, r0.y, r0.z)

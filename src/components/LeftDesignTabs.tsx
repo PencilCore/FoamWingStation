@@ -9,6 +9,7 @@ import {
 import { useWing } from '../hooks/useWing';
 import { useRequiredFoamHeight } from '../hooks/useRequiredFoamHeight';
 import { generateGcode } from '../services/gcodeGenerator';
+import { computeGcodeSig } from '../services/pathEngine';
 
 // ===== 懒加载：所有机翼设计组件按需加载，缩小首屏 bundle =====
 const BasicParams = lazy(() => import('./design/BasicParams'));
@@ -41,7 +42,7 @@ const wingSubTabs: TabDef[] = [
   { label: '双翼排布', Component: WingLayoutConfig },            // 2
   { label: '碳杆配置', Component: CarbonRodConfig },             // 3
   { label: '分段配置', Component: SegmentConfig },               // 4
-  { label: '切割设置', Component: CuttingSettings },             // 5
+  { label: '切割调校', Component: CuttingSettings },             // 5
 ];
 
 type TabIssue = 'error' | 'warning' | undefined;
@@ -82,9 +83,10 @@ export default function LeftDesignTabs({ onExportGcode, subTab: externalSubTab, 
     try {
       const result = await generateGcode(model);
       const code = side === 'left' ? result.left : side === 'right' ? result.right : result.both;
-      // 同步预览数据，供切割页与徽标使用
-      if (result.both && JSON.stringify(model.previewGcodeData) !== JSON.stringify(result)) {
-        handleRadioChange('previewGcodeData', result);
+      // 同步预览数据，供切割页与徽标使用（附带参数签名，供 3D 预览校验快照是否过期）
+      const snap = { ...result, sig: computeGcodeSig(model) };
+      if (result.both && JSON.stringify(model.previewGcodeData) !== JSON.stringify(snap)) {
+        handleRadioChange('previewGcodeData', snap);
       }
       onExportGcode?.(code || '', side);
     } catch (error) {

@@ -54,10 +54,22 @@ export interface WingModel {
     right: string;
     both: string;
     warnings: string[];
+    /** 生成快照时的参数签名（computeGcodeSig 产物）。消费端（3D 预览）用它判断快照是否由当前参数生成，
+     *  签名不匹配视为过期快照 → 回退实时几何路径，避免改参数后虚线/动画路径不更新 */
+    sig?: string;
   };
 
   /** 泡沫块 Z 方向偏移 (mm)，从龙门架 Z=0 起算 */
   foamOffsetZ: number;
+
+  /** 水平马达沿泡沫长度方向向机器外侧的统一偏移 (mm)；左塔 -Z、右塔 +Z */
+  towerOffsetX: number;
+
+  /** 切割平台沿泡沫长度方向（两塔连线，3D z）的偏移 (mm)；负值反向、正值正向；马达与机架保持原位；FoamCut Neo 预设默认 62 */
+  platformOffset: number;
+
+  /** 切割平台沿泡沫宽度方向（3D x）的偏移 (mm)；负值反向、正值正向；马达与机架保持原位 */
+  platformOffsetY: number;
 
   /** 翻转翼面 Z 轴方向（针对左右翼镜像） */
   flipZ?: boolean;
@@ -91,6 +103,11 @@ export interface WingModel {
 
   /** 翼型安全距离（mm），控制切割路径离开坐标原点的最小距离 */
   pathMargin: number;
+
+  /** 是否启用热丝收缩补偿（泡沫受热收缩导致切槽变宽，路径外扩补偿） */
+  shrinkCompensationEnabled: boolean;
+  /** 收缩补偿外扩量（mm），切割路径沿外沿等距外扩该值（形状变大，进刀路径相应缩短） */
+  shrinkCompensation: number;
 
   /** 切割顺序：0=先上表面后下表面，1=先下后上（影响排线） */
   cutDirection: 0 | 1;
@@ -165,9 +182,14 @@ export const defaultModel: WingModel = {
   interWingOffsetX: 0,
   interWingOffsetY: 30,
   pathMargin: 10,
+  shrinkCompensationEnabled: false,
+  shrinkCompensation: 1,
   cutDirection: 0,
   safeHeight: 50,
   foamOffsetZ: 0, // 默认起点位于坐标系 0 点
+  towerOffsetX: 0, // 默认无 X 轴偏移
+  platformOffset: 0, // 默认无平台长度方向偏移（FoamCut Neo 预设为 62）
+  platformOffsetY: 0, // 默认无平台宽度方向偏移
   flipZ: false,
   mirrorX: false,
   mirrorY: false,

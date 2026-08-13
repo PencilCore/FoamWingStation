@@ -29,9 +29,17 @@ export const WingProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return defaultModel;
     });
 
-    // 自动保存到 localStorage
+    // 自动保存到 localStorage —— 防抖 250ms：拖动滑块/连续改参数时避免每帧
+    // JSON.stringify(含 previewGcodeData 大字符串) + 写盘阻塞主线程，只在停止输入后保存
     React.useEffect(() => {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(model));
+        const t = setTimeout(() => {
+            try {
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(model));
+            } catch (e) {
+                console.error('Failed to save model', e);
+            }
+        }, 250);
+        return () => clearTimeout(t);
     }, [model]);
 
     /**
@@ -65,12 +73,12 @@ export const WingProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setModel(prev => ({ ...prev, [name]: value as any }));
     }, []);
 
-    const value = {
+    const value = React.useMemo(() => ({
         model,
         setModel,
         handleModelChange,
         handleRadioChange
-    };
+    }), [model, handleModelChange, handleRadioChange]);
 
     return <WingContext.Provider value={value}>{children}</WingContext.Provider>;
 };

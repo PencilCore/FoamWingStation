@@ -1,6 +1,7 @@
 import { useEffect, useRef, useCallback } from 'react';
 import { useWing } from '../hooks/useWing';
 import { useGenerateAirfoilPoints } from '../hooks/useGenerateAirfoilPoints';
+import { offsetPolygonOutward } from '../services/pathEngine';
 
 export default function TwoPreview() {
   const canvas = useRef<HTMLCanvasElement | null>(null);
@@ -261,14 +262,26 @@ export default function TwoPreview() {
     };
 
     /* ---------- 4. 绘制双翼型 ---------- */
+    // 收缩补偿预览：开启时在轮廓外沿等距外扩 compDist mm（虚线显示补偿后的切割路径）
+    const compDist = !!model.shrinkCompensationEnabled
+      ? (model.unit === 'inch' ? (model.shrinkCompensation || 0) * 25.4 : (model.shrinkCompensation || 0))
+      : 0;
+    const compRoot = compDist > 0 && rootTrans?.points?.length ? offsetPolygonOutward(rootTrans.points, compDist) : null;
+    const compTip = compDist > 0 && tipTrans?.points?.length ? offsetPolygonOutward(tipTrans.points, compDist) : null;
     if (rootTrans?.points?.length) {
       drawAirfoil(rootTrans, rootChord, '#0ea5e9', '#38bdf8', `Root: ${rootAirfoil}`, { labelYOffset: -10 });
+      if (compRoot) {
+        drawAirfoil({ le: compRoot[0], points: compRoot }, rootChord, '#38bdf8', '#38bdf8', 'Root (收缩补偿)', { dashed: true, opacity: 0.8, labelYOffset: -25 });
+      }
       if (generateBoth) {
         drawAirfoil(rootTrans, rootChord, '#0ea5e9', '#38bdf8', `Root (offset)`, { dashed: true, labelYOffset: -25 });
       }
     }
     if (tipTrans?.points?.length) {
       drawAirfoil(tipTrans, tipChord, '#f97316', '#fb923c', `Tip: ${tipAirfoil}`, { labelYOffset: 10 });
+      if (compTip) {
+        drawAirfoil({ le: compTip[0], points: compTip }, tipChord, '#fb923c', '#fb923c', 'Tip (收缩补偿)', { dashed: true, opacity: 0.8, labelYOffset: 25 });
+      }
       if (generateBoth) {
         drawAirfoil(tipTrans, tipChord, '#f97316', '#fb923c', `Tip (offset)`, { dashed: true, labelYOffset: 25 });
       }
@@ -414,6 +427,8 @@ export default function TwoPreview() {
     model.rootOffsetY,
     model.tipOffsetX,
     model.tipOffsetY,
+    model.shrinkCompensationEnabled,
+    model.shrinkCompensation,
     draw, // safe to include
   ]);
 
