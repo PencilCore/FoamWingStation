@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Box, Tabs, Tab, Tooltip } from '@mui/material';
 import DesignServicesIcon from '@mui/icons-material/DesignServices';
 import ContentCutIcon from '@mui/icons-material/ContentCut';
@@ -22,6 +22,7 @@ import SerialToolbar from './components/console/SerialToolbar';
 import logo from './assets/FAVICON.PNG';
 import LicenseModal from './components/LicenseModal';
 import FloatingIconBar from './components/FloatingIconBar';
+import BootSplash from './components/BootSplash';
 import type { IconBarItem } from './components/FloatingIconBar';
 
 export default function App() {
@@ -29,6 +30,33 @@ export default function App() {
   const [licenseOpen, setLicenseOpen] = useState(false);
   const [subTab, setSubTab] = useState(0);       // 设计页子项索引
   const [sectionTab, setSectionTab] = useState(0); // 机床页子项索引
+
+  // ===== 启动画面：模拟资源加载进度，完成后模糊出主界面 =====
+  const [bootProgress, setBootProgress] = useState(15); // 初始 15%，与 index.html 静态进度衔接
+  const [booted, setBooted] = useState(false);
+
+  useEffect(() => {
+    // 接管 index.html 中的静态启动画面（React 就绪后移除，交给本组件继续显示）
+    document.getElementById('bootSplash')?.remove();
+
+    let raf = 0;
+    const start = performance.now();
+    const DURATION = 1300; // ms
+    const tick = (t: number) => {
+      const p = Math.min(1, (t - start) / DURATION);
+      // ease-out 曲线：快速起步、缓慢收尾，避免进度条拖尾感
+      const eased = 15 + (1 - Math.pow(1 - p, 2.2)) * 85;
+      setBootProgress(eased);
+      if (p < 1) {
+        raf = requestAnimationFrame(tick);
+      } else {
+        // 到 100% 后稍作停留，再淡出启动画面、模糊出主界面
+        setTimeout(() => setBooted(true), 300);
+      }
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, []);
 
   // 浮动图标条定义
   const subTabIcons: IconBarItem[] = [
@@ -71,7 +99,20 @@ export default function App() {
 
     return (
       <ThemeProvider theme={theme}>
-        <Box sx={{ display: 'flex', height: '100vh', bgcolor: '#0a0a0a', overflow: 'hidden' }}>
+        <Box
+          sx={{
+            display: 'flex',
+            height: '100vh',
+            bgcolor: '#0a0a0a',
+            overflow: 'hidden',
+            // 启动完成前：模糊 + 半透明 + 微缩放；完成后过渡到清晰（模糊出主界面）
+            filter: booted ? 'none' : 'blur(10px)',
+            opacity: booted ? 1 : 0,
+            transform: booted ? 'scale(1)' : 'scale(1.02)',
+            transition: 'filter 0.7s ease, opacity 0.7s ease, transform 0.7s ease',
+            pointerEvents: booted ? 'auto' : 'none',
+          }}
+        >
           {/* ===== 左侧图标边栏（与 logo 等宽） ===== */}
           <Box
             width={64}
@@ -205,6 +246,7 @@ export default function App() {
           </Box>
         </Box>
         <LicenseModal open={licenseOpen} onClose={() => setLicenseOpen(false)} />
+        <BootSplash progress={bootProgress} leaving={booted} />
       </ThemeProvider>
   );
 }

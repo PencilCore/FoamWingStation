@@ -6,8 +6,25 @@
     <link rel="stylesheet" type="text/css" href="src/index.css" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>FoamWing Station</title>
+    <!-- 预加载 logo：避免启动画面先显示 alt 文字、图片后才出现的闪现 -->
+    <link rel="preload" as="image" href="/FAVICON.PNG" />
   </head>
   <body>
+    <!-- 静态启动画面：React 挂载前显示，避免白屏；React 就绪后由 App 接管并淡出 -->
+    <div
+      id="bootSplash"
+      style="
+        position: fixed; inset: 0; z-index: 99999; display: flex;
+        flex-direction: column; align-items: center; justify-content: center; gap: 20px;
+        background: #0a0a0a; color: #38bdf8;
+      "
+    >
+      <img src="/FAVICON.PNG" alt="" style="width: 96px; height: 96px" />
+      <div style="width: 300px; height: 3px; border-radius: 2px; background: rgba(56,189,248,0.15); overflow: hidden">
+        <!-- 静态版不播动画、固定 15%，与 React 版初始进度衔接，避免进度条重复走两遍 -->
+        <div style="height: 100%; width: 15%; border-radius: 2px; background: linear-gradient(90deg, rgba(56,189,248,0.55), #38bdf8); box-shadow: 0 0 12px rgba(56,189,248,0.6)"></div>
+      </div>
+    </div>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

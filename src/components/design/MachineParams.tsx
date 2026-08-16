@@ -214,13 +214,6 @@ export default function MachineParams({ sectionTab: externalSectionTab, onSectio
         onChange={handleSlider}
         helperText="水平马达沿泡沫长度方向向机器外侧偏移；热丝挂点保持原位"
       />
-
-      <PlatformOffsetPad
-        x={model.platformOffset ?? 0}
-        y={model.platformOffsetY ?? 0}
-        onChange={(px, py) => setModel({ ...model, platformOffset: px, platformOffsetY: py })}
-        helperText="点击/拖拽十字坐标轴同时调整平台偏移 X/Y（FoamCut Neo 默认 X=62）；马达与机架保持原位；偏移反映到 G-code：长度方向(X)并入泡沫定位、宽度方向(Y)进入 X/U 坐标"
-      />
     </Box>
   );
 
@@ -285,6 +278,18 @@ export default function MachineParams({ sectionTab: externalSectionTab, onSectio
       <SliderTextField label="最大行程 Y (长度)" name="machineLength" value={model.machineLength} min={100} max={3000} unit="mm" onChange={handleSlider} />
       <SliderTextField label="最大高度 Z" name="machineHeight" value={model.machineHeight} min={100} max={1500} unit="mm" onChange={handleSlider} />
       <SliderTextField label="机台离地高度" name="groundClearance" value={model.groundClearance} min={0} max={500} unit="mm" onChange={handleSlider} />
+
+      <Divider sx={{ my: 2, opacity: 0.1 }} />
+
+      <Typography variant="subtitle2" sx={{ color: 'design.sky', mb: 1.5, fontWeight: 'bold' }}>
+        平台偏移（仅第一象限 X≥0 / Y≥0）
+      </Typography>
+      <PlatformOffsetPad
+        x={model.platformOffset ?? 0}
+        y={model.platformOffsetY ?? 0}
+        onChange={(px, py) => setModel({ ...model, platformOffset: px, platformOffsetY: py })}
+        helperText="点击/拖拽坐标控制盘或拖动 X/Y 滑块调整平台偏移（仅 X≥0、Y≥0；FoamCut Neo 预设默认 X=62）；马达与机架保持原位；偏移反映到 G-code：长度方向(X)并入泡沫定位、宽度方向(Y)进入 X/U 坐标"
+      />
     </Box>
   );
 

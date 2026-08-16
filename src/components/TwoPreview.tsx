@@ -1,11 +1,44 @@
-import { useEffect, useRef, useCallback } from 'react';
+import { useEffect, useRef, useCallback, useState, useMemo } from 'react';
 import { useWing } from '../hooks/useWing';
-import { useGenerateAirfoilPoints } from '../hooks/useGenerateAirfoilPoints';
+import { airfoilPointsGenerator } from '../services/airfoilPointsGenerator';
 import { offsetPolygonOutward } from '../services/pathEngine';
+import type { WingModel } from '../types/wing.model';
 
 export default function TwoPreview() {
   const canvas = useRef<HTMLCanvasElement | null>(null);
   const { model } = useWing();
+
+  // 实时参数覆盖：SliderTextField 拖动/输入中广播 wing-param-live（2D 计算量小 → 实时重绘，不必等松开滑块）；
+  // 提交（wing-param-commit）后 model 已更新，清除对应 live 值，两者保持一致。
+  const [liveParams, setLiveParams] = useState<Partial<WingModel>>({});
+  useEffect(() => {
+    const onLive = (e: Event) => {
+      const { name, value } = (e as CustomEvent<{ name: string; value: number }>).detail;
+      setLiveParams(prev => {
+        const next: Record<string, unknown> = { ...prev };
+        next[name] = value;
+        return next as Partial<WingModel>;
+      });
+    };
+    const onCommit = (e: Event) => {
+      const { name } = (e as CustomEvent<{ name: string }>).detail;
+      setLiveParams(prev => {
+        if (!(name in prev)) return prev;
+        const next: Record<string, unknown> = { ...prev };
+        delete next[name];
+        return next as Partial<WingModel>;
+      });
+    };
+    window.addEventListener('wing-param-live', onLive);
+    window.addEventListener('wing-param-commit', onCommit);
+    return () => {
+      window.removeEventListener('wing-param-live', onLive);
+      window.removeEventListener('wing-param-commit', onCommit);
+    };
+  }, []);
+
+  // 拖动中：live 值覆盖对应字段实时绘制；提交后 live 值被清除，回落为 model
+  const effectiveModel = useMemo(() => ({ ...model, ...liveParams }), [model, liveParams]);
   const {
     rootAirfoil,
     tipAirfoil,
@@ -14,14 +47,13 @@ export default function TwoPreview() {
     rootRotation,
     tipRotation,
     unit,
-  } = model;
+  } = effectiveModel;
   const {
     generateBoth,
-  } = model;
+  } = effectiveModel;
 
   const ctxRef = useRef<CanvasRenderingContext2D | null>(null);
   const drawTokenRef = useRef(0);
-  const generateAirfoilPoints = useGenerateAirfoilPoints();
 
   // cache last sizing to avoid resetting backing store unnecessarily
   const sizeRef = useRef<{ cssW: number; cssH: number; dpr: number } | null>(null);
@@ -123,7 +155,7 @@ export default function TwoPreview() {
     }
 
     /* ---------- 1. 生成并获取已变换的翼型点 ---------- */
-    const gen = await generateAirfoilPoints();
+    const gen = await airfoilPointsGenerator(effectiveModel);
     if (drawTokenRef.current !== drawId) return; // cancelled
 
     const rootTrans = gen.root;
@@ -136,7 +168,7 @@ export default function TwoPreview() {
       ...(tipTrans?.points || []),
       ...(rootTrans ? [rootTrans.le] : []),
       ...(tipTrans ? [tipTrans.le] : []),
-      ...((model as any).gcodePath || []).flatMap((p: any) => [
+      ...((effectiveModel as any).gcodePath || []).flatMap((p: any) => [
         { x: p.x, y: p.y },
         { x: p.u, y: p.z }
       ])
@@ -263,8 +295,8 @@ export default function TwoPreview() {
 
     /* ---------- 4. 绘制双翼型 ---------- */
     // 收缩补偿预览：开启时在轮廓外沿等距外扩 compDist mm（虚线显示补偿后的切割路径）
-    const compDist = !!model.shrinkCompensationEnabled
-      ? (model.unit === 'inch' ? (model.shrinkCompensation || 0) * 25.4 : (model.shrinkCompensation || 0))
+    const compDist = !!effectiveModel.shrinkCompensationEnabled
+      ? (effectiveModel.unit === 'inch' ? (effectiveModel.shrinkCompensation || 0) * 25.4 : (effectiveModel.shrinkCompensation || 0))
       : 0;
     const compRoot = compDist > 0 && rootTrans?.points?.length ? offsetPolygonOutward(rootTrans.points, compDist) : null;
     const compTip = compDist > 0 && tipTrans?.points?.length ? offsetPolygonOutward(tipTrans.points, compDist) : null;
@@ -289,7 +321,7 @@ export default function TwoPreview() {
 
     /* ---------- 5. 绘制 G-code 路径反推轨迹 (临时隐藏引用) ---------- */
     // @ts-ignore
-    const gcodePath = (model as any).gcodePath;
+    const gcodePath = (effectiveModel as any).gcodePath;
     if (gcodePath && gcodePath.length > 1) {
       drawCtx.save();
       
@@ -302,7 +334,7 @@ export default function TwoPreview() {
       drawCtx.strokeStyle = isRightTower ? '#fb923c' : '#38bdf8';
       drawCtx.setLineDash([2, 5]); // 虚线表示这是从 G-code 反推的预览
       
-      const path = (model as any).gcodePath || [];
+      const path = (effectiveModel as any).gcodePath || [];
       path.forEach((p: any) => {
         const px = isRightTower ? p.u : p.x;
         const py = isRightTower ? p.z : p.y;
@@ -355,7 +387,7 @@ export default function TwoPreview() {
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     }
   }, [
-    generateAirfoilPoints,
+    effectiveModel,
     rootAirfoil,
     tipAirfoil,
     rootChord,
@@ -418,17 +450,17 @@ export default function TwoPreview() {
     rootRotation,
     tipRotation,
     unit,
-    model.washout,
-    model.leadingEdgeSweep,
-    model.interWingOffsetX,
-    model.interWingOffsetY,
-    model.generateBoth,
-    model.rootOffsetX,
-    model.rootOffsetY,
-    model.tipOffsetX,
-    model.tipOffsetY,
-    model.shrinkCompensationEnabled,
-    model.shrinkCompensation,
+    effectiveModel.washout,
+    effectiveModel.leadingEdgeSweep,
+    effectiveModel.interWingOffsetX,
+    effectiveModel.interWingOffsetY,
+    effectiveModel.generateBoth,
+    effectiveModel.rootOffsetX,
+    effectiveModel.rootOffsetY,
+    effectiveModel.tipOffsetX,
+    effectiveModel.tipOffsetY,
+    effectiveModel.shrinkCompensationEnabled,
+    effectiveModel.shrinkCompensation,
     draw, // safe to include
   ]);
 

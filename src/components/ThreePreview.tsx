@@ -621,26 +621,38 @@ export default function ThreePreview() {
     return () => window.removeEventListener('serial-data', handleSerialData)
   }, [])
 
-  // OrbitControls 的目标设为移位后的机翼中心
+  // OrbitControls 的目标设为移位后的机翼中心：直接取当前视图下实际翼面点（root+tip）的包围盒中心，
+  // 自动跟随平台偏移（platformOffset/platformOffsetY）、堆叠模式与泡沫定位，无需手工近似
   const centerTarget = useMemo(() => {
+    const collect = (wings: any[]): THREE.Vector3[] => {
+      const pts: THREE.Vector3[] = [];
+      for (const w of wings) {
+        if (!w) continue;
+        if (Array.isArray(w.wingRoot)) pts.push(...w.wingRoot);
+        if (Array.isArray(w.wingTip)) pts.push(...w.wingTip);
+      }
+      return pts;
+    };
+    let pts: THREE.Vector3[] = [];
     if (left && right && rightOffset) {
-       const isVert = model.stackingMode === 'vertical';
-       const xGap = isVert ? (model.interWingOffsetX ?? 0) : (left.width + (model.interWingOffsetX ?? 50));
-       const yShift = isVert ? (left.height + (model.interWingOffsetY ?? 30)) : (model.interWingOffsetY ?? 0);
-       // 平台偏移修正：翼面/泡沫整体沿宽度方向(X)平移 platformOffsetY、沿长度方向(Z)平移 foamOffsetZ+platformOffset
-       const platY = model.platformOffsetY ?? 0;
-       const platZ = (model.platformOffset ?? 0) + (model.foamOffsetZ ?? 0);
-
-       if (viewMode === 'both') {
-          return new THREE.Vector3(xGap / 2 + 10 + platY, yShift / 2, wingSpan / 2 + platZ);
-       } else if (viewMode === 'right') {
-          return new THREE.Vector3(xGap + 10 + platY, yShift, wingSpan / 2 + platZ);
-       } else {
-          return new THREE.Vector3(left.width / 2 + 10 + platY, 0, wingSpan / 2 + platZ);
-       }
+      if (viewMode === 'both') pts = collect([left, rightOffset]);
+      else if (viewMode === 'right') pts = collect([right]);
+      else pts = collect([left]);
     }
-    return new THREE.Vector3(foamChord / 2, foamThickness / 2, wingSpan / 2)
-  }, [left, right, rightOffset, viewMode, model.interWingOffsetX, model.interWingOffsetY, model.stackingMode, model.platformOffset, model.platformOffsetY, model.foamOffsetZ, foamChord, wingSpan, foamThickness])
+    if (pts.length > 0) {
+      let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity, minZ = Infinity, maxZ = -Infinity;
+      for (const p of pts) {
+        if (p.x < minX) minX = p.x;
+        if (p.x > maxX) maxX = p.x;
+        if (p.y < minY) minY = p.y;
+        if (p.y > maxY) maxY = p.y;
+        if (p.z < minZ) minZ = p.z;
+        if (p.z > maxZ) maxZ = p.z;
+      }
+      return new THREE.Vector3((minX + maxX) / 2, (minY + maxY) / 2, (minZ + maxZ) / 2);
+    }
+    return new THREE.Vector3(foamChord / 2, foamThickness / 2, wingSpan / 2);
+  }, [left, right, rightOffset, viewMode, foamChord, wingSpan, foamThickness])
 
   // —— 视角固定策略 ——
   // 相机位置 + OrbitControls target 只在「翼面数据首次就绪」与「viewMode 切换」时设置：
@@ -803,6 +815,23 @@ export default function ThreePreview() {
     if (progressTextRef.current) progressTextRef.current.textContent = `${dist.toFixed(1)} / ${totalDist.toFixed(1)} mm`;
   }, [totalDist]);
 
+  // 空格键：播放/暂停动画（避免在输入框/文本框/可编辑区域中触发）
+  const togglePlayRef = useRef(togglePlay);
+  useEffect(() => {
+    togglePlayRef.current = togglePlay;
+  }, [togglePlay]);
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.code !== 'Space') return;
+      const el = document.activeElement;
+      if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || (el as HTMLElement).isContentEditable)) return;
+      e.preventDefault(); // 阻止空格滚动页面
+      togglePlayRef.current();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
   // —— 参数提交后的「模糊→清晰化」过渡 ——
   // SliderTextField 松开滑条/数字框提交时，3D 视图先快速模糊，等 React 提交 +
   // Three.js 场景重建完成后平滑恢复清晰，用视觉过渡掩盖重建瞬间，避免画面跳变。
@@ -812,8 +841,8 @@ export default function ThreePreview() {
     const handleParamCommit = () => {
       if (blurTimerRef.current) clearTimeout(blurTimerRef.current);
       setPreviewBlur(true);
-      // 等待重建完成（约 300ms）后恢复清晰，CSS transition 平滑过渡
-      blurTimerRef.current = setTimeout(() => setPreviewBlur(false), 300);
+      // 等待重建完成（约 100ms）后恢复清晰，CSS transition 平滑过渡
+      blurTimerRef.current = setTimeout(() => setPreviewBlur(false), 100);
     };
     window.addEventListener('wing-param-commit', handleParamCommit);
     return () => {
@@ -829,12 +858,12 @@ export default function ThreePreview() {
         camera={cameraSettings}
         shadows
         style={{
-          filter: previewBlur ? 'blur(7px)' : 'none',
-          opacity: previewBlur ? 0.5 : 1,
-          // 进入模糊快（0.15s），恢复清晰慢（0.45s）：形成「模糊一下 → 平滑清晰化」节奏
+          filter: previewBlur ? 'blur(2px)' : 'none',
+          opacity: previewBlur ? 0.85 : 1,
+          // 轻量过渡：轻微模糊 + 几乎不变暗，掩盖重建瞬间又不至于整屏变黑
           transition: previewBlur
-            ? 'filter 0.15s ease-in, opacity 0.15s ease-in'
-            : 'filter 0.45s ease-out, opacity 0.45s ease-out',
+            ? 'filter 0.05s ease-in, opacity 0.05s ease-in'
+            : 'filter 0.1s ease-out, opacity 0.1s ease-out',
         }}
       >
         

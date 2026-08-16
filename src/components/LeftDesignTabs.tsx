@@ -10,6 +10,7 @@ import { useWing } from '../hooks/useWing';
 import { useRequiredFoamHeight } from '../hooks/useRequiredFoamHeight';
 import { generateGcode } from '../services/gcodeGenerator';
 import { computeGcodeSig } from '../services/pathEngine';
+import TwoPreview from './TwoPreview';
 
 // ===== 懒加载：所有机翼设计组件按需加载，缩小首屏 bundle =====
 const BasicParams = lazy(() => import('./design/BasicParams'));
@@ -45,8 +46,6 @@ const wingSubTabs: TabDef[] = [
   { label: '切割调校', Component: CuttingSettings },             // 5
 ];
 
-type TabIssue = 'error' | 'warning' | undefined;
-
 interface LeftDesignTabsProps {
   /** 导出按钮回调：回传对应侧 G-Code，由 App 自动切换到切割页 */
   onExportGcode?: (gcode: string, side: 'left' | 'right' | 'both') => void;
@@ -56,19 +55,17 @@ interface LeftDesignTabsProps {
   onSubTabChange?: (tab: number) => void;
 }
 
-export default function LeftDesignTabs({ onExportGcode, subTab: externalSubTab, onSubTabChange }: LeftDesignTabsProps) {
+export default function LeftDesignTabs({ onExportGcode, subTab: externalSubTab, onSubTabChange: _onSubTabChange }: LeftDesignTabsProps) {
   const { model, handleRadioChange } = useWing();
   const [mainTab, setMainTab] = useState(0);   // 0 机翼设计  1 图案设计（预留）
-  const [internalSubTab, setInternalSubTab] = useState(0);     // 机翼设计子项索引
+  const [internalSubTab] = useState(0);     // 机翼设计子项索引（受控模式由 App 提供）
   const [exporting, setExporting] = useState(false);
 
   // 使用外部状态（如果提供），否则使用内部状态
   const subTab = externalSubTab ?? internalSubTab;
-  const setSubTab = onSubTabChange ?? setInternalSubTab;
 
   // ===== 校验状态 =====
   const foamInfo = useRequiredFoamHeight(model);
-  const foamIssue: TabIssue = foamInfo.isAdequate ? undefined : 'warning';
 
   // 当前激活组件
   const ActiveComponent: React.ComponentType =
@@ -110,7 +107,37 @@ export default function LeftDesignTabs({ onExportGcode, subTab: externalSubTab, 
   };
 
   return (
-    <Box display="flex" height="100%" width="100%" minHeight={0} bgcolor="background.default" position="relative">
+    <Box display="flex" flexDirection="column" height="100%" width="100%" minHeight={0} bgcolor="background.default" position="relative">
+      {/* 顶部：2D 设计视图（默认常驻显示） */}
+      <Box
+        height="30%"
+        minHeight={160}
+        flexShrink={0}
+        display="flex"
+        flexDirection="column"
+        borderBottom="1px solid #2e2e2e"
+        overflow="hidden"
+      >
+        {/* 标题条 */}
+        <Box
+          sx={{
+            display: 'flex',
+            alignItems: 'center',
+            px: 1.5,
+            py: 0.5,
+            bgcolor: 'rgba(255,255,255,0.03)',
+            borderBottom: '1px solid rgba(255,255,255,0.06)',
+          }}
+        >
+          <Typography variant="caption" sx={{ color: 'design.sky', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+            2D 设计视图
+          </Typography>
+        </Box>
+        <Box flex={1} minHeight={0} p={0.75}>
+          <TwoPreview />
+        </Box>
+      </Box>
+
       {/* 主内容区 */}
       <Box flex={1} overflow="auto" p={3} bgcolor="background.default" position="relative" minWidth={0}>
         {/* 顶部：机翼设计/图案设计切换 */}

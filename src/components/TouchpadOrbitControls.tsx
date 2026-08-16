@@ -5,7 +5,7 @@
 //  - 双指捏合（pinch，wheel + ctrlKey）→ 缩放
 //  - 鼠标滚轮（大步长 wheel / 行模式）→ 仍为缩放
 //  - 无阻尼，操作即时响应；降低缩放灵敏度（触摸板滚动增量大）
-//  - 按键映射：左键旋转 / 右键平移 / 中键缩放（标准 3D 软件习惯）
+//  - 按键映射：左键平移 / 中键旋转（Shift+中键平移） / 滚轮缩放；右键不操作视图
 import { useEffect, useRef } from 'react'
 import type { ComponentProps } from 'react'
 import { OrbitControls } from '@react-three/drei'
@@ -76,6 +76,21 @@ export function TouchpadOrbitControls(props: ComponentProps<typeof OrbitControls
 
   useEffect(() => {
     const el = gl.domElement
+    // 左键平移（由 mouseButtons 配置）；中键旋转；右键保持 Blender 风格不操作视图
+    // （Shift+中键平移、滚轮缩放为 OrbitControls 内建）
+    const onPointerDown = (e: PointerEvent) => {
+      if (e.pointerType !== 'mouse') return // 触摸/触控笔不受影响
+      if (e.button === 2) {
+        e.preventDefault()
+        e.stopPropagation()
+      }
+    }
+    el.addEventListener('pointerdown', onPointerDown, { capture: true })
+    return () => el.removeEventListener('pointerdown', onPointerDown, { capture: true } as AddEventListenerOptions)
+  }, [gl])
+
+  useEffect(() => {
+    const el = gl.domElement
     const onWheel = (e: WheelEvent) => {
       const controls = controlsRef.current
       if (!controls) return
@@ -99,12 +114,12 @@ export function TouchpadOrbitControls(props: ComponentProps<typeof OrbitControls
       {...props}
       enableDamping={props.enableDamping ?? false}
       dampingFactor={props.dampingFactor ?? 0.08}
-      zoomSpeed={props.zoomSpeed ?? 0.6}
+      zoomSpeed={props.zoomSpeed ?? 1.35}
       mouseButtons={
         props.mouseButtons ?? {
-          LEFT: THREE.MOUSE.ROTATE,
-          MIDDLE: THREE.MOUSE.DOLLY,
-          RIGHT: THREE.MOUSE.PAN,
+          LEFT: THREE.MOUSE.PAN, // 左键平移
+          MIDDLE: THREE.MOUSE.ROTATE, // 中键旋转；Shift+中键 → OrbitControls 内建切为平移
+          RIGHT: THREE.MOUSE.PAN, // 占位（实际被 pointerdown 拦截，不生效）
         }
       }
     />

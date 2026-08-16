@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useEffect, useRef, useCallback } from 'react';
+import { useMemo, useState, useEffect, useRef, useCallback } from 'react';
 import { Box, Typography, Button, ButtonGroup } from '@mui/material';
 
 interface GCodePreviewProps {
@@ -8,7 +8,7 @@ interface GCodePreviewProps {
 
 export default function GcodeSimulator({ gcode, currentIndex = 0 }: GCodePreviewProps) {
   const [viewMode, setViewMode] = useState<'XY' | 'UZ'>('XY');
-  
+
   // 完全移除内部播放状态：播放进度统一由 3D 视图（Gcode3DPreview）驱动，
   // 这里仅通过 window 'gcode-progress' 事件 + 外部 currentIndex 同步绘制
   const currentDistRef = useRef(0);
@@ -63,7 +63,7 @@ export default function GcodeSimulator({ gcode, currentIndex = 0 }: GCodePreview
       }
     });
 
-    // 计算累计路程（用于路程/秒播放）
+    // 计算累计路程（用于路程驱动绘制，与 3D 视图广播的距离一致）
     const cumXY = [0];
     for (let i = 1; i < xyPath.length; i++) {
       const dx = xyPath[i][0] - xyPath[i-1][0];
@@ -92,12 +92,6 @@ export default function GcodeSimulator({ gcode, currentIndex = 0 }: GCodePreview
     };
   }, [gcode]);
 
-  // 使用 useRef 缓存 gcode，避免在 useEffect 中引起闭包陷阱
-  const gcodeRef = React.useRef(gcode);
-  React.useEffect(() => {
-    gcodeRef.current = gcode;
-  }, [gcode]);
-
   const padding = 30;
   const svgWidth = 400;
   const svgHeight = 250;
@@ -106,10 +100,10 @@ export default function GcodeSimulator({ gcode, currentIndex = 0 }: GCodePreview
   const currentBounds = viewMode === 'XY' ? bounds.XY : bounds.UZ;
   const currentCumDist = viewMode === 'XY' ? cumDists.XY : cumDists.UZ;
   const currentTotalDist = viewMode === 'XY' ? totalDists.XY : totalDists.UZ;
-
+  
   const contentWidth = Math.max(1, currentBounds.maxX - currentBounds.minX);
   const contentHeight = Math.max(1, currentBounds.maxY - currentBounds.minY);
-
+  
   const availableWidth = svgWidth - 2 * padding;
   const availableHeight = svgHeight - 2 * padding;
   const scale = Math.min(availableWidth / contentWidth, availableHeight / contentHeight);
@@ -120,7 +114,7 @@ export default function GcodeSimulator({ gcode, currentIndex = 0 }: GCodePreview
   const getSvgX = useCallback((x: number) => x * scale + offsetX, [scale, offsetX]);
   const getSvgY = useCallback((y: number) => svgHeight - (y * scale + offsetY), [scale, offsetY, svgHeight]);
 
-  // 更新 Canvas 核心逻辑：最高性能的 2D 绘图（基于路程/秒）
+  // 更新 Canvas 核心逻辑：最高性能的 2D 绘图（基于路程驱动，与 3D 广播的距离一致）
   const updateCanvasNodes = useCallback((distance: number) => {
     if (!canvasRef.current || currentPath.length === 0) return;
     const ctx = canvasRef.current.getContext('2d');
@@ -151,7 +145,7 @@ export default function GcodeSimulator({ gcode, currentIndex = 0 }: GCodePreview
     ctx.lineJoin = 'round';
 
     ctx.moveTo(getSvgX(currentPath[0][0]), getSvgY(currentPath[0][1]));
-
+    
     // 性能要点：当路径点非常多时（比如几万个点），每帧循环几万次 lineTo 会严重拖慢 CPU
     // 导致 GC 或渲染拥塞，进而出现有规律的掉帧（每隔n帧卡一下）。
     // 我们仅循环截断到当前进度
@@ -162,7 +156,7 @@ export default function GcodeSimulator({ gcode, currentIndex = 0 }: GCodePreview
     // 插值计算当前点
     let hx = currentPath[idx][0];
     let hy = currentPath[idx][1];
-
+    
     if (idx >= 0 && idx < currentPath.length - 1) {
       const p1 = currentPath[idx];
       const p2 = currentPath[idx+1];
@@ -171,10 +165,10 @@ export default function GcodeSimulator({ gcode, currentIndex = 0 }: GCodePreview
         hy = p1[1] + (p2[1] - p1[1]) * frac;
       }
     }
-
+    
     const headX = getSvgX(hx);
     const headY = getSvgY(hy);
-
+    
     ctx.lineTo(headX, headY);
     ctx.stroke();
 

@@ -44,6 +44,9 @@ export default function SliderTextField({
     // 柔和淡入：先移除动画类再添加，保证 CSS animation 重放
     setFlash(false);
     requestAnimationFrame(() => setFlash(true));
+    // 实时广播参数值：2D 预览等轻量消费方（TwoPreview）拖动中实时重绘，不必等松开滑块；
+    // 3D 预览计算量大，仍以 commit 事件为准（不监听本事件）
+    window.dispatchEvent(new CustomEvent('wing-param-live', { detail: { name, value: v } }));
   };
 
   // 提交到外部 model：松开滑条（onChangeCommitted）/ 数字框失焦或回车时调用一次
